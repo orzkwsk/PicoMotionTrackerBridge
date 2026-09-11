@@ -11,6 +11,8 @@ using namespace pico_ot::bridge;
 
 namespace {
 
+constexpr uint64_t kSession = 0x0102030405060708ull;
+
 bool Near(double a, double b) {
     return std::abs(a - b) < 1e-12;
 }
@@ -35,11 +37,12 @@ void TestPoseRoundTrip() {
     src.angularVelocityFrame = 1;
 
     std::vector<uint8_t> bytes;
-    assert(EncodePosePacket(42, src, bytes));
+    assert(EncodePosePacket(kSession, 42, src, bytes));
     assert(bytes.size() == kWireHeaderSize + 174);
 
     DecodedPacket decoded;
     assert(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
+    assert(decoded.senderSessionId == kSession);
     assert(decoded.sequence == 42);
     assert(std::holds_alternative<PosePacket>(decoded.payload));
 
@@ -76,10 +79,11 @@ void TestDeviceStateRoundTrip() {
     src.observedMonotonicNs = 9988776655ll;
 
     std::vector<uint8_t> bytes;
-    assert(EncodeDeviceStatePacket(7, src, bytes));
+    assert(EncodeDeviceStatePacket(kSession, 7, src, bytes));
 
     DecodedPacket decoded;
     assert(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
+    assert(decoded.senderSessionId == kSession);
     assert(decoded.sequence == 7);
     assert(std::holds_alternative<DeviceStatePacket>(decoded.payload));
 
@@ -96,17 +100,19 @@ void TestDeviceStateRoundTrip() {
 void TestTimeSyncRoundTrip() {
     TimeSyncRequestPacket req{123, 1000};
     std::vector<uint8_t> bytes;
-    assert(EncodeTimeSyncRequestPacket(8, req, bytes));
+    assert(EncodeTimeSyncRequestPacket(kSession, 8, req, bytes));
 
     DecodedPacket decoded;
     assert(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
+    assert(decoded.senderSessionId == kSession);
     const auto& reqOut = std::get<TimeSyncRequestPacket>(decoded.payload);
     assert(reqOut.nonce == 123);
     assert(reqOut.clientSendMonotonicNs == 1000);
 
     TimeSyncResponsePacket res{123, 1000, 1100, 1150};
-    assert(EncodeTimeSyncResponsePacket(9, res, bytes));
+    assert(EncodeTimeSyncResponsePacket(kSession, 9, res, bytes));
     assert(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
+    assert(decoded.senderSessionId == kSession);
     const auto& resOut = std::get<TimeSyncResponsePacket>(decoded.payload);
     assert(resOut.nonce == 123);
     assert(resOut.clientSendMonotonicNs == 1000);
@@ -118,7 +124,7 @@ void TestMalformedPackets() {
     PosePacket pose;
     pose.serial = "PC2310MLK7200684G";
     std::vector<uint8_t> bytes;
-    assert(EncodePosePacket(1, pose, bytes));
+    assert(EncodePosePacket(kSession, 1, pose, bytes));
 
     DecodedPacket decoded;
     assert(DecodePacket(bytes.data(), kWireHeaderSize - 1, decoded) == DecodeStatus::Truncated);
@@ -138,11 +144,11 @@ void TestMalformedPackets() {
 
     PosePacket nanPose = pose;
     nanPose.positionMeters.x = std::numeric_limits<double>::quiet_NaN();
-    assert(!EncodePosePacket(1, nanPose, bytes));
+    assert(!EncodePosePacket(kSession, 1, nanPose, bytes));
 
     PosePacket longSerial = pose;
     longSerial.serial.assign(kWireSerialCapacity, 'A');
-    assert(!EncodePosePacket(1, longSerial, bytes));
+    assert(!EncodePosePacket(kSession, 1, longSerial, bytes));
 }
 
 }  // namespace
