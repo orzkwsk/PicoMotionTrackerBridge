@@ -44,8 +44,8 @@ $env:ANDROID_HOME = $sdk
 $env:ANDROID_SDK_ROOT = $sdk
 $env:ANDROID_NDK_HOME = $ndk
 
-$sdkProp = $sdk.Replace('\\', '/')
-$ndkProp = $ndk.Replace('\\', '/')
+$sdkProp = $sdk.Replace('\', '/')
+$ndkProp = $ndk.Replace('\', '/')
 @("sdk.dir=$sdkProp", "ndk.dir=$ndkProp") | Set-Content -Encoding ASCII (Join-Path $root "local.properties")
 
 $nativeBuild = Join-Path $root "native-build"
