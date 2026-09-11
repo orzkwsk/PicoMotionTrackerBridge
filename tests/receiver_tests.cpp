@@ -45,7 +45,9 @@ void TestLatestStateAndClockSync() {
     ReceiverConfig receiverConfig;
     receiverConfig.listenPort = 0;
     receiverConfig.timeSyncIntervalNs = 1'000'000LL;
-    receiverConfig.staleTimeoutNs = 50'000'000LL;
+    // Do not make this test depend on Windows scheduler granularity. The stale
+    // transition itself is verified below with an explicit synthetic timestamp.
+    receiverConfig.staleTimeoutNs = 1'000'000'000LL;
     receiverConfig.clientSessionId = 0xabc;
     std::string error;
     assert(receiver.Start(receiverConfig, &error));
