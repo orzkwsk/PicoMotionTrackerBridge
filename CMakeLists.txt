@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(PicoMotionTrackerBackend VERSION 0.1.0 LANGUAGES C CXX)
 
-option(PICO_OT_BUILD_TESTS "Build host-side decoder/clock/protocol tests" ON)
+option(PICO_OT_BUILD_TESTS "Build host-side backend/bridge tests" ON)
 option(PICO_OT_BUILD_SHARED "Build shared backend library" ON)
 
 set(PICO_OT_SOURCES
@@ -43,20 +43,21 @@ elseif(UNIX)
     target_link_libraries(pico_ot_backend PRIVATE dl)
 endif()
 
-# Platform-neutral HMD<->PC bridge protocol. This target deliberately has no
-# dependency on the private PICO runtime or OpenVR so it can be shared by the
-# Android sender and the Windows SteamVR receiver.
-add_library(pico_ot_bridge_protocol STATIC
-    src/bridge/protocol.cpp)
-add_library(PicoOT::BridgeProtocol ALIAS pico_ot_bridge_protocol)
-target_compile_features(pico_ot_bridge_protocol PUBLIC cxx_std_17)
-target_include_directories(pico_ot_bridge_protocol
+# Platform-neutral HMD<->PC bridge core. It deliberately has no dependency on
+# the private PICO runtime or OpenVR so the Android sender and Windows receiver
+# can share the exact same packet and clock-domain semantics.
+add_library(pico_ot_bridge_core STATIC
+    src/bridge/protocol.cpp
+    src/bridge/clock_sync.cpp)
+add_library(PicoOT::BridgeCore ALIAS pico_ot_bridge_core)
+target_compile_features(pico_ot_bridge_core PUBLIC cxx_std_17)
+target_include_directories(pico_ot_bridge_core
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 if(MSVC)
-    target_compile_options(pico_ot_bridge_protocol PRIVATE /W4 /permissive-)
+    target_compile_options(pico_ot_bridge_core PRIVATE /W4 /permissive-)
 else()
-    target_compile_options(pico_ot_bridge_protocol PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(pico_ot_bridge_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
@@ -78,11 +79,22 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     add_executable(pico_ot_bridge_protocol_tests
         tests/protocol_tests.cpp)
     target_compile_features(pico_ot_bridge_protocol_tests PRIVATE cxx_std_17)
-    target_link_libraries(pico_ot_bridge_protocol_tests PRIVATE PicoOT::BridgeProtocol)
+    target_link_libraries(pico_ot_bridge_protocol_tests PRIVATE PicoOT::BridgeCore)
     if(MSVC)
         target_compile_options(pico_ot_bridge_protocol_tests PRIVATE /W4 /permissive-)
     else()
         target_compile_options(pico_ot_bridge_protocol_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
     add_test(NAME pico_ot_bridge_protocol_tests COMMAND pico_ot_bridge_protocol_tests)
+
+    add_executable(pico_ot_bridge_clock_sync_tests
+        tests/clock_sync_tests.cpp)
+    target_compile_features(pico_ot_bridge_clock_sync_tests PRIVATE cxx_std_17)
+    target_link_libraries(pico_ot_bridge_clock_sync_tests PRIVATE PicoOT::BridgeCore)
+    if(MSVC)
+        target_compile_options(pico_ot_bridge_clock_sync_tests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(pico_ot_bridge_clock_sync_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME pico_ot_bridge_clock_sync_tests COMMAND pico_ot_bridge_clock_sync_tests)
 endif()
