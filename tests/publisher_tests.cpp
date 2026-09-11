@@ -79,7 +79,7 @@ void TestPoseAndDevicePackets() {
     device.runtimeDeviceId = 4;
     device.connected = true;
     device.charging = true;
-    device.batteryBucketRaw = 9;
+    device.batteryBucketRaw = static_cast<uint8_t>(9);
     device.observedMonotonicNs = 999;
 
     assert(publisher.SendDeviceState(device, &error));
