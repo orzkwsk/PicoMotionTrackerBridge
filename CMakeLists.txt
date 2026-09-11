@@ -62,11 +62,12 @@ else()
 endif()
 
 # Cross-platform UDP transport used by the Android sender and PC receiver.
-# Publisher depends on the normalized Backend types but not on private runtime
-# implementation details.
+# Publisher depends on normalized Backend types but not on private runtime
+# implementation details. Receiver remains purely above the wire contract.
 add_library(pico_ot_bridge_transport STATIC
     src/bridge/udp_socket.cpp
-    src/bridge/publisher.cpp)
+    src/bridge/publisher.cpp
+    src/bridge/receiver.cpp)
 add_library(PicoOT::BridgeTransport ALIAS pico_ot_bridge_transport)
 target_compile_features(pico_ot_bridge_transport PUBLIC cxx_std_17)
 target_include_directories(pico_ot_bridge_transport
@@ -97,8 +98,7 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     endif()
     add_test(NAME pico_ot_backend_tests COMMAND pico_ot_backend_tests)
 
-    add_executable(pico_ot_bridge_protocol_tests
-        tests/protocol_tests.cpp)
+    add_executable(pico_ot_bridge_protocol_tests tests/protocol_tests.cpp)
     target_compile_features(pico_ot_bridge_protocol_tests PRIVATE cxx_std_17)
     target_link_libraries(pico_ot_bridge_protocol_tests PRIVATE PicoOT::BridgeCore)
     if(MSVC)
@@ -108,8 +108,7 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     endif()
     add_test(NAME pico_ot_bridge_protocol_tests COMMAND pico_ot_bridge_protocol_tests)
 
-    add_executable(pico_ot_bridge_clock_sync_tests
-        tests/clock_sync_tests.cpp)
+    add_executable(pico_ot_bridge_clock_sync_tests tests/clock_sync_tests.cpp)
     target_compile_features(pico_ot_bridge_clock_sync_tests PRIVATE cxx_std_17)
     target_link_libraries(pico_ot_bridge_clock_sync_tests PRIVATE PicoOT::BridgeCore)
     if(MSVC)
@@ -119,8 +118,7 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     endif()
     add_test(NAME pico_ot_bridge_clock_sync_tests COMMAND pico_ot_bridge_clock_sync_tests)
 
-    add_executable(pico_ot_bridge_udp_socket_tests
-        tests/udp_socket_tests.cpp)
+    add_executable(pico_ot_bridge_udp_socket_tests tests/udp_socket_tests.cpp)
     target_compile_features(pico_ot_bridge_udp_socket_tests PRIVATE cxx_std_17)
     target_link_libraries(pico_ot_bridge_udp_socket_tests PRIVATE PicoOT::BridgeTransport)
     if(MSVC)
@@ -130,8 +128,7 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     endif()
     add_test(NAME pico_ot_bridge_udp_socket_tests COMMAND pico_ot_bridge_udp_socket_tests)
 
-    add_executable(pico_ot_bridge_publisher_tests
-        tests/publisher_tests.cpp)
+    add_executable(pico_ot_bridge_publisher_tests tests/publisher_tests.cpp)
     target_compile_features(pico_ot_bridge_publisher_tests PRIVATE cxx_std_17)
     target_link_libraries(pico_ot_bridge_publisher_tests PRIVATE PicoOT::BridgeTransport)
     if(MSVC)
@@ -140,4 +137,14 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
         target_compile_options(pico_ot_bridge_publisher_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
     add_test(NAME pico_ot_bridge_publisher_tests COMMAND pico_ot_bridge_publisher_tests)
+
+    add_executable(pico_ot_bridge_receiver_tests tests/receiver_tests.cpp)
+    target_compile_features(pico_ot_bridge_receiver_tests PRIVATE cxx_std_17)
+    target_link_libraries(pico_ot_bridge_receiver_tests PRIVATE PicoOT::BridgeTransport)
+    if(MSVC)
+        target_compile_options(pico_ot_bridge_receiver_tests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(pico_ot_bridge_receiver_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME pico_ot_bridge_receiver_tests COMMAND pico_ot_bridge_receiver_tests)
 endif()
