@@ -80,7 +80,7 @@ TIME_SYNC_REQUEST
 TIME_SYNC_RESPONSE
 ```
 
-The sender session ID changes when the HMD bridge sender restarts. This prevents a PC receiver from interpreting a restarted sequence counter or old device topology as the same sender lifetime.
+The sender session ID changes when the HMD bridge sender starts. This prevents a PC receiver from interpreting a restarted sequence counter or old device topology as the same sender lifetime.
 
 ### POSE
 
@@ -115,11 +115,11 @@ Carries low-rate management information:
 - raw optional battery bucket
 - HMD observation time
 
-The current Backend does not claim an authoritative live connection bit. The PC must use stream liveness separately from the startup snapshot.
+The current Backend does not claim an authoritative live connection bit. The PC uses stream liveness separately from the startup snapshot.
 
 ## Clock domains
 
-Three time concepts must remain separate:
+Three time concepts remain separate:
 
 ```text
 PICO/vendor timestamp
@@ -148,27 +148,42 @@ The short rolling estimator selects the observation with the lowest network RTT 
 
 A fixed HMD/PC timestamp offset is prohibited.
 
+## PC receiver policy
+
+The Windows receiver is non-blocking and drains all currently queued datagrams on each pump. It retains only the newest accepted state per full serial.
+
+Default liveness policy:
+
+```text
+pose packet age <= 500 ms -> stream live
+pose packet age >  500 ms -> stale/disconnected
+```
+
+`connectedSnapshot` remains metadata from Backend enumeration and is not used as authoritative live connection state.
+
+When the HMD sender session ID changes, the PC receiver clears cached topology and clock-sync state before accepting the new sender lifetime.
+
 ## SteamVR driver target
 
-The first driver target will use OpenVR SDK 2.15.6 and expose each serial as:
+The first driver target uses OpenVR SDK 2.15.6 and exposes each serial as:
 
 ```text
 TrackedDeviceClass_GenericTracker
 ```
 
-Roles remain user-managed through SteamVR's Manage Trackers UI; the driver must not hard-code waist/foot/knee roles.
+Roles remain user-managed through SteamVR's Manage Trackers UI; the driver does not hard-code waist/foot/knee roles.
 
-The driver receive path must not block `IServerTrackedDeviceProvider::RunFrame()`.
+The driver receive path does not block `IServerTrackedDeviceProvider::RunFrame()`.
 
-Bring-up order:
+Current bring-up behavior:
 
 1. driver DLL/manifest loads in SteamVR;
 2. UDP receiver accepts/decodes bridge packets;
 3. full serial creates/reuses a Generic Tracker device;
 4. latest pose is submitted with `TrackedDevicePoseUpdated`;
 5. stale stream marks the device disconnected/invalid;
-6. HMD-to-PC clock sync drives pose age / `poseTimeOffset`;
-7. coordinate alignment is added explicitly above raw `PicoOutputA`.
+6. HMD-to-PC clock sync drives `poseTimeOffset` when available;
+7. coordinate alignment remains deliberately unresolved until transport/device registration is validated.
 
 ## Coordinate policy
 
@@ -182,9 +197,9 @@ Validated facts:
 
 Therefore an explicit rigid transform/calibration step is required above the receiver before the output can be considered spatially correct in SteamVR.
 
-Initial driver bring-up may use identity driver-space transform only to verify transport/device registration. That state is diagnostic, not final calibration.
+Initial driver bring-up uses an identity driver-space transform only to verify transport/device registration. That state is diagnostic, not final calibration.
 
-Angular velocity remains a device/local-frame candidate. It must not be blindly submitted as SteamVR world/driver-space angular velocity until its frame conversion is proven.
+Linear and angular velocity are intentionally submitted as zero during this bring-up stage. The global PICO->OpenVR basis is not yet calibrated, and angular velocity remains a device/local-frame candidate.
 
 ## Current implementation status
 
@@ -194,12 +209,33 @@ Implemented on `feature/steamvr-output`:
 - sender-session identification;
 - pose/device-state packet models;
 - NTP-style HMD-to-PC clock estimator;
-- cross-platform UDP socket abstraction;
-- host-side codec/clock/UDP loopback tests in CMake.
+- cross-platform monotonic clock abstraction;
+- cross-platform non-blocking UDP socket abstraction;
+- Android/HMD Backend publisher;
+- Windows latest-state receiver;
+- stream-stale handling;
+- Generic Tracker SteamVR provider/device skeleton;
+- OpenVR SDK 2.15.6 optional build integration;
+- SteamVR driver manifest/package layout;
+- BackendTestApp manual PC IPv4 / bridge start-stop controls;
+- standalone PC receiver CLI;
+- protocol, clock, UDP, publisher, and receiver host tests;
+- host/SteamVR build and driver registration helper scripts.
 
-Next implementation unit:
+## Next validation gate
+
+Do not calibrate coordinates yet.
+
+Validate in this order:
 
 ```text
-Android Backend -> UDP publisher
-Windows UDP receiver -> SteamVR server-driver skeleton
+1. Host build + CTest
+2. PC receiver CLI listening on UDP 29765
+3. BackendTestApp -> PC bridge start
+4. Confirm serial/pose stream and HMD<->PC clock sync in CLI
+5. Build/register SteamVR driver
+6. Confirm same serials appear as Generic Trackers
+7. Only then derive PicoOutputA -> OpenVR alignment
 ```
+
+The first hardware gate is transport only. SteamVR and coordinate calibration are intentionally excluded until HMD->PC pose delivery is proven.
