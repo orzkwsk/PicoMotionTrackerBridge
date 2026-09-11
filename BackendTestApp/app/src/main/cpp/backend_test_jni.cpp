@@ -17,7 +17,7 @@ namespace {
 
 constexpr const char* kTag = "PicoOTTest";
 constexpr const char* kExpectedBuildId = "d1b55bc0598ffff93cc01eaf089793f8";
-constexpr uint32_t kPollHz = 60;
+constexpr uint32_t kPollHz = 120;
 constexpr uint32_t kPoseLogHz = 10;
 constexpr uint32_t kPoseLogEveryLoops = kPollHz / kPoseLogHz;
 constexpr auto kPollPeriod = std::chrono::nanoseconds(1000000000LL / kPollHz);
