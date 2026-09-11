@@ -1,0 +1,4 @@
+plugins {
+    // Match the known-working Unity 2022.3 Android toolchain used by NativeTrackerProbe.
+    id 'com.android.application' version '7.1.2' apply false
+}
