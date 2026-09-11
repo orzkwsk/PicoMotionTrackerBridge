@@ -15,6 +15,32 @@ vr::HmdQuaternion_t IdentityQuaternion() {
     return q;
 }
 
+vr::HmdQuaternion_t MultiplyQuaternion(const vr::HmdQuaternion_t& a,
+                                       const vr::HmdQuaternion_t& b) {
+    vr::HmdQuaternion_t q{};
+    q.w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z;
+    q.x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y;
+    q.y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x;
+    q.z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w;
+    return q;
+}
+
+vr::HmdQuaternion_t PicoTrackerLocalToOpenVrLocal() {
+    // Measured on hardware with the tracker held in its normal orientation:
+    //   physical right-roll -> raw/OpenVR nose-down pitch
+    //   physical nose-down pitch -> raw/OpenVR left-roll
+    //   yaw direction matches
+    // This is exactly a +90 degree rotation about the local +Y axis when the
+    // PICO quaternion is otherwise interpreted in the OpenVR world basis.
+    // Keep this as an output-layer mount/local-basis correction; the Backend
+    // continues to expose the unmodified PICO OutputA quaternion.
+    constexpr double kSqrtHalf = 0.70710678118654752440;
+    vr::HmdQuaternion_t q{};
+    q.w = kSqrtHalf;
+    q.y = kSqrtHalf;
+    return q;
+}
+
 }  // namespace
 
 TrackerDevice::TrackerDevice(std::string serial)
@@ -96,18 +122,25 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
                           : vr::TrackingResult_Running_OutOfRange;
 
         if (source.positionValid) {
-            // Diagnostic bring-up path only. PicoOutputA -> OpenVR basis
-            // calibration is intentionally not guessed here.
+            // Position bring-up currently indicates matching axis directions
+            // and scale. World-origin alignment is still intentionally separate.
             next.vecPosition[0] = source.positionMeters.x;
             next.vecPosition[1] = source.positionMeters.y;
             next.vecPosition[2] = source.positionMeters.z;
         }
 
         if (source.orientationSamplePresent) {
-            next.qRotation.w = source.orientationXyzw.w;
-            next.qRotation.x = source.orientationXyzw.x;
-            next.qRotation.y = source.orientationXyzw.y;
-            next.qRotation.z = source.orientationXyzw.z;
+            vr::HmdQuaternion_t picoOrientation{};
+            picoOrientation.w = source.orientationXyzw.w;
+            picoOrientation.x = source.orientationXyzw.x;
+            picoOrientation.y = source.orientationXyzw.y;
+            picoOrientation.z = source.orientationXyzw.z;
+
+            // q_pico maps the PICO tracker-local basis into the world basis.
+            // Post-multiplication changes only the tracker-local/mount basis;
+            // it deliberately does not rotate the world position axes.
+            next.qRotation = MultiplyQuaternion(
+                picoOrientation, PicoTrackerLocalToOpenVrLocal());
         }
 
         // Velocity fields intentionally remain zero for initial bring-up.
