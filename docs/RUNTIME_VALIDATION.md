@@ -226,6 +226,47 @@ During the final low-motion region (approximately loop 2600 onward in the 120 Hz
 
 This is consistent with small residual tracking/estimation noise when stationary and with continued IMU orientation service while optical position is invalid.
 
+## ReinitializeRuntime while tracking
+
+`ReinitializeRuntime()` was invoked while `PC2310MLK7200684G` had valid 6DoF position. The call completed immediately with:
+
+```text
+REINITIALIZE status=ok trackerMap=rebuilt clockMapper=reset
+```
+
+The tracker remained `positionValid=1` across the call. The observed pose delta across adjacent logged samples was sub-millimeter in position and negligible in orientation, with no velocity spike, polling error, crash, or timestamp-mapping failure. This indicates that `initTrackerMap()` can be called during normal tracking without causing an obvious pose reset on the tested runtime.
+
+## Tracker power-cycle and reconnect recovery
+
+A long-lived harness run then exercised a tracker power-cycle. `PC2310MLK7200684G` was initially tracking normally, then entered a clear stale-output state: `positionValid=0`, while the returned quaternion and angular velocity became byte-for-byte constant across repeated polls. The backend's `connectedSnapshot` remained `1`, confirming that this field is only the startup enumeration snapshot and must not be treated as live connection state.
+
+While stale, polling still returned success and query timestamps continued to advance. Therefore neither successful `getBodyTrackerData()` calls nor advancing timestamps are sufficient evidence that a physical tracker is currently delivering live samples.
+
+After the tracker was powered back on, `ReinitializeRuntime()` was invoked at `01:21:05.995`. The call succeeded and reset the clock mapper. Within several seconds the previously stale tracker began producing changing orientation/pose data again, and by approximately `01:21:12.047` it had returned to:
+
+```text
+serial=PC2310MLK7200684G
+runtimeDeviceId=4
+positionValid=1
+orientationSamplePresent=1
+```
+
+The same serial and runtime device ID were retained in this run. No repeated TrackerInfo enumeration was required for this recovery path.
+
+Observed recovery sequence:
+
+```text
+live 6DoF
+  -> tracker power interruption
+  -> stale frozen payload, connectedSnapshot still 1
+  -> tracker powered back on
+  -> ReinitializeRuntime()
+  -> orientation/data stream resumes
+  -> optical position reacquires a few seconds later
+```
+
+This makes `ReinitializeRuntime()` a viable recovery primitive for a previously known/registered tracker on the tested runtime. It does **not** solve discovery of newly added devices, removal of stale registry entries, or authoritative live connection-state reporting; those still require a separate device-state strategy.
+
 ## Confirmed backend behavior
 
 As of this validation:
@@ -248,11 +289,15 @@ Two-tracker simultaneous 6DoF       PASS
 60 Hz query stress                  PASS
 120 Hz-class query stress           PASS
 Final stationary behavior           PASS
+Reinitialize during valid 6DoF      PASS
+Known-tracker power-cycle recovery  PASS via ReinitializeRuntime()
 ```
 
 ## Next runtime tests
 
 1. Exercise HMD sleep/resume followed by `ReinitializeRuntime()` and verify timestamp continuity/rebasing.
-2. Exercise tracker disconnect/reconnect over a long-lived process.
-3. Repeat while Virtual Desktop owns the XR session.
-4. Only after the standalone backend remains stable, stop and review before starting the SteamVR bridge/output branch.
+2. Verify live device-state/discovery behavior separately from the startup snapshot, especially for newly added/removed trackers.
+3. Repeat remaining lifecycle tests while Virtual Desktop owns the XR session if that condition has not already been covered explicitly.
+4. Validate PICO reference-frame/recenter behavior before implementing coordinate conversion in an output module.
+5. Validate five-tracker operation before declaring the backend complete.
+6. Only after the standalone backend remains stable, stop and review before starting the SteamVR bridge/output branch.
