@@ -96,6 +96,18 @@ else()
     target_compile_options(pico_ot_bridge_publisher PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+if(NOT ANDROID)
+    add_executable(pico_ot_bridge_receiver_cli
+        tools/bridge_receiver_cli.cpp)
+    target_compile_features(pico_ot_bridge_receiver_cli PRIVATE cxx_std_17)
+    target_link_libraries(pico_ot_bridge_receiver_cli PRIVATE PicoOT::BridgeTransport)
+    if(MSVC)
+        target_compile_options(pico_ot_bridge_receiver_cli PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(pico_ot_bridge_receiver_cli PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endif()
+
 if(PICO_OT_BUILD_STEAMVR_DRIVER)
     if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
         message(FATAL_ERROR "PICO_OT_BUILD_STEAMVR_DRIVER currently requires 64-bit Windows")
@@ -128,18 +140,26 @@ if(PICO_OT_BUILD_STEAMVR_DRIVER)
         PicoOT::BridgeTransport
         openvr_api_prebuilt)
     target_compile_options(pico_ot_steamvr_driver PRIVATE /W4 /permissive-)
+
+    set(PICO_OT_STEAMVR_PACKAGE_DIR "${CMAKE_BINARY_DIR}/steamvr/pico_ot_bridge")
+    set(PICO_OT_STEAMVR_BIN_DIR "${PICO_OT_STEAMVR_PACKAGE_DIR}/bin/win64")
     set_target_properties(pico_ot_steamvr_driver PROPERTIES
         OUTPUT_NAME "driver_pico_ot_bridge"
         PREFIX ""
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/steamvr/pico_ot_bridge/bin/win64"
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/steamvr/pico_ot_bridge/bin/win64")
+        RUNTIME_OUTPUT_DIRECTORY "${PICO_OT_STEAMVR_BIN_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY "${PICO_OT_STEAMVR_BIN_DIR}")
+    foreach(config_name DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+        set_target_properties(pico_ot_steamvr_driver PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_${config_name} "${PICO_OT_STEAMVR_BIN_DIR}"
+            LIBRARY_OUTPUT_DIRECTORY_${config_name} "${PICO_OT_STEAMVR_BIN_DIR}")
+    endforeach()
 
     add_custom_command(TARGET pico_ot_steamvr_driver POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
-            "${CMAKE_BINARY_DIR}/steamvr/pico_ot_bridge"
+            "${PICO_OT_STEAMVR_PACKAGE_DIR}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/driver.vrdrivermanifest"
-            "${CMAKE_BINARY_DIR}/steamvr/pico_ot_bridge/driver.vrdrivermanifest")
+            "${PICO_OT_STEAMVR_PACKAGE_DIR}/driver.vrdrivermanifest")
 endif()
 
 if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
