@@ -2,8 +2,8 @@
 
 #include <cmath>
 #include <cstring>
-#include <limits>
 #include <type_traits>
+#include <utility>
 
 namespace pico_ot::bridge {
 namespace {
@@ -54,11 +54,13 @@ bool AppendSerial(std::vector<uint8_t>& out, const std::string& serial) {
 
 void AppendHeader(std::vector<uint8_t>& out,
                   WireMessageType type,
+                  uint64_t senderSessionId,
                   uint32_t sequence,
                   uint32_t payloadSize) {
     AppendIntegralLE(out, kWireMagic);
     AppendIntegralLE(out, kWireVersion);
     AppendIntegralLE(out, static_cast<uint16_t>(type));
+    AppendIntegralLE(out, senderSessionId);
     AppendIntegralLE(out, sequence);
     AppendIntegralLE(out, payloadSize);
 }
@@ -156,7 +158,7 @@ bool EncodePosePayload(const PosePacket& packet, std::vector<uint8_t>& payload) 
     AppendIntegralLE(payload, flags);
 
     AppendIntegralLE(payload, packet.rawTrackingState65);
-    payload.insert(payload.end(), 3, 0);  // Reserved for protocol-v1 flag expansion.
+    payload.insert(payload.end(), 3, 0);
 
     AppendIntegralLE(payload, packet.sourceTimestamp);
     AppendIntegralLE(payload, packet.observedMonotonicNs);
@@ -253,6 +255,7 @@ bool DecodeDeviceStatePayload(Reader& reader, DeviceStatePacket& packet) {
 
 template <typename Payload, typename EncodePayload>
 bool EncodePacket(WireMessageType type,
+                  uint64_t senderSessionId,
                   uint32_t sequence,
                   const Payload& packet,
                   size_t expectedPayloadSize,
@@ -266,17 +269,20 @@ bool EncodePacket(WireMessageType type,
 
     out.clear();
     out.reserve(kWireHeaderSize + payload.size());
-    AppendHeader(out, type, sequence, static_cast<uint32_t>(payload.size()));
+    AppendHeader(out, type, senderSessionId, sequence,
+                 static_cast<uint32_t>(payload.size()));
     out.insert(out.end(), payload.begin(), payload.end());
     return true;
 }
 
 }  // namespace
 
-bool EncodePosePacket(uint32_t sequence,
+bool EncodePosePacket(uint64_t senderSessionId,
+                      uint32_t sequence,
                       const PosePacket& packet,
                       std::vector<uint8_t>& out) {
     return EncodePacket(WireMessageType::Pose,
+                        senderSessionId,
                         sequence,
                         packet,
                         kPosePayloadSize,
@@ -284,10 +290,12 @@ bool EncodePosePacket(uint32_t sequence,
                         out);
 }
 
-bool EncodeDeviceStatePacket(uint32_t sequence,
+bool EncodeDeviceStatePacket(uint64_t senderSessionId,
+                             uint32_t sequence,
                              const DeviceStatePacket& packet,
                              std::vector<uint8_t>& out) {
     return EncodePacket(WireMessageType::DeviceState,
+                        senderSessionId,
                         sequence,
                         packet,
                         kDeviceStatePayloadSize,
@@ -295,7 +303,8 @@ bool EncodeDeviceStatePacket(uint32_t sequence,
                         out);
 }
 
-bool EncodeTimeSyncRequestPacket(uint32_t sequence,
+bool EncodeTimeSyncRequestPacket(uint64_t senderSessionId,
+                                 uint32_t sequence,
                                  const TimeSyncRequestPacket& packet,
                                  std::vector<uint8_t>& out) {
     const auto encoder = [](const TimeSyncRequestPacket& p, std::vector<uint8_t>& payload) {
@@ -304,6 +313,7 @@ bool EncodeTimeSyncRequestPacket(uint32_t sequence,
         return true;
     };
     return EncodePacket(WireMessageType::TimeSyncRequest,
+                        senderSessionId,
                         sequence,
                         packet,
                         kTimeSyncRequestPayloadSize,
@@ -311,7 +321,8 @@ bool EncodeTimeSyncRequestPacket(uint32_t sequence,
                         out);
 }
 
-bool EncodeTimeSyncResponsePacket(uint32_t sequence,
+bool EncodeTimeSyncResponsePacket(uint64_t senderSessionId,
+                                  uint32_t sequence,
                                   const TimeSyncResponsePacket& packet,
                                   std::vector<uint8_t>& out) {
     const auto encoder = [](const TimeSyncResponsePacket& p, std::vector<uint8_t>& payload) {
@@ -322,6 +333,7 @@ bool EncodeTimeSyncResponsePacket(uint32_t sequence,
         return true;
     };
     return EncodePacket(WireMessageType::TimeSyncResponse,
+                        senderSessionId,
                         sequence,
                         packet,
                         kTimeSyncResponsePayloadSize,
@@ -340,11 +352,13 @@ DecodeStatus DecodePacket(const uint8_t* data,
     uint32_t magic = 0;
     uint16_t version = 0;
     uint16_t typeRaw = 0;
+    uint64_t senderSessionId = 0;
     uint32_t sequence = 0;
     uint32_t payloadSize = 0;
     if (!reader.ReadIntegral(magic) ||
         !reader.ReadIntegral(version) ||
         !reader.ReadIntegral(typeRaw) ||
+        !reader.ReadIntegral(senderSessionId) ||
         !reader.ReadIntegral(sequence) ||
         !reader.ReadIntegral(payloadSize)) {
         return DecodeStatus::Truncated;
@@ -378,6 +392,7 @@ DecodeStatus DecodePacket(const uint8_t* data,
             if (reader.remaining() != 0) {
                 return DecodeStatus::InvalidPayloadSize;
             }
+            out.senderSessionId = senderSessionId;
             out.sequence = sequence;
             out.payload = std::move(packet);
             return DecodeStatus::Ok;
@@ -393,6 +408,7 @@ DecodeStatus DecodePacket(const uint8_t* data,
             if (reader.remaining() != 0) {
                 return DecodeStatus::InvalidPayloadSize;
             }
+            out.senderSessionId = senderSessionId;
             out.sequence = sequence;
             out.payload = std::move(packet);
             return DecodeStatus::Ok;
@@ -407,6 +423,7 @@ DecodeStatus DecodePacket(const uint8_t* data,
                 reader.remaining() != 0) {
                 return DecodeStatus::Truncated;
             }
+            out.senderSessionId = senderSessionId;
             out.sequence = sequence;
             out.payload = packet;
             return DecodeStatus::Ok;
@@ -423,6 +440,7 @@ DecodeStatus DecodePacket(const uint8_t* data,
                 reader.remaining() != 0) {
                 return DecodeStatus::Truncated;
             }
+            out.senderSessionId = senderSessionId;
             out.sequence = sequence;
             out.payload = packet;
             return DecodeStatus::Ok;
