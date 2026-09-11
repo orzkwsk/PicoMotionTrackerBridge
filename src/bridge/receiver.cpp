@@ -4,7 +4,6 @@
 
 #include <array>
 #include <random>
-#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -109,18 +108,36 @@ bool Receiver::MaybeSendTimeSync(int64_t nowPcMonotonicNs, std::string* error) {
 void Receiver::HandlePacket(const DecodedPacket& decoded,
                             const UdpEndpoint& source,
                             int64_t receivePcMonotonicNs) {
-    // Receiver v1 supports one HMD sender at a time. A new sender session is a
-    // topology lifetime boundary and invalidates all prior cached tracker state.
-    if (activeSenderSessionId_ == 0) {
-        BeginSenderSession(decoded.senderSessionId, source);
-    } else if (decoded.senderSessionId != activeSenderSessionId_) {
-        // Time-sync requests originate from a PC client and are not HMD state.
-        if (std::holds_alternative<TimeSyncRequestPacket>(decoded.payload)) {
+    const bool isPose = std::holds_alternative<PosePacket>(decoded.payload);
+    const bool isDeviceState = std::holds_alternative<DeviceStatePacket>(decoded.payload);
+    const bool isTimeSyncResponse =
+        std::holds_alternative<TimeSyncResponsePacket>(decoded.payload);
+
+    // Only HMD state packets are allowed to establish or switch the active
+    // sender session. A delayed control response from an old sender must never
+    // roll topology back to that old session.
+    if (isPose || isDeviceState) {
+        if (activeSenderSessionId_ == 0 ||
+            decoded.senderSessionId != activeSenderSessionId_) {
+            BeginSenderSession(decoded.senderSessionId, source);
+        } else {
+            activeSenderEndpoint_ = source;
+        }
+    } else if (isTimeSyncResponse) {
+        if (activeSenderSessionId_ == 0 ||
+            decoded.senderSessionId != activeSenderSessionId_) {
             return;
         }
-        BeginSenderSession(decoded.senderSessionId, source);
+        // Accept control responses only from the endpoint associated with the
+        // active HMD sender session.
+        if (source.address != activeSenderEndpoint_.address ||
+            source.port != activeSenderEndpoint_.port) {
+            return;
+        }
     } else {
-        activeSenderEndpoint_ = source;
+        // TimeSyncRequest is PC-originated control traffic and is not valid
+        // input for a Receiver instance.
+        return;
     }
 
     if (const auto* pose = std::get_if<PosePacket>(&decoded.payload)) {
