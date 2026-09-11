@@ -30,14 +30,15 @@ vr::HmdQuaternion_t PicoTrackerLocalToOpenVrLocal() {
     //   physical right-roll -> raw/OpenVR nose-down pitch
     //   physical nose-down pitch -> raw/OpenVR left-roll
     //   yaw direction matches
-    // This is exactly a +90 degree rotation about the local +Y axis when the
-    // PICO quaternion is otherwise interpreted in the OpenVR world basis.
-    // Keep this as an output-layer mount/local-basis correction; the Backend
-    // continues to expose the unmodified PICO OutputA quaternion.
+    // The inverse local-basis correction is a -90 degree rotation about the
+    // local +Y axis when the PICO quaternion is otherwise interpreted in the
+    // OpenVR world basis. Keep this as an output-layer mount/local-basis
+    // correction; the Backend continues to expose the unmodified PICO OutputA
+    // quaternion.
     constexpr double kSqrtHalf = 0.70710678118654752440;
     vr::HmdQuaternion_t q{};
     q.w = kSqrtHalf;
-    q.y = kSqrtHalf;
+    q.y = -kSqrtHalf;
     return q;
 }
 
