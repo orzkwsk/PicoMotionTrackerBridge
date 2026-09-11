@@ -2,7 +2,7 @@
 
 This document records observations from the standalone non-XR backend harness on real PICO hardware. It is evidence for the backend contract, not a claim about undocumented vendor semantics beyond what was observed.
 
-## 2026-09-11 validation baseline
+## Validation baseline
 
 Target:
 
@@ -13,59 +13,81 @@ Target:
 - `getBodyTrackerData` offset `0x47dc8`
 - `algo_result_tracker` size `392`
 
-Loaded runtime identity:
+Validated runtime identity:
 
 ```text
 GNU Build ID: d1b55bc0598ffff93cc01eaf089793f8
 ```
 
-Strict runtime verification was then enabled with that Build ID. The device harness started with:
+Strict runtime verification was enabled with:
 
 ```text
 allowUnverified=0
 verified=1
 ```
 
-Initial enumeration returned two connected trackers:
+The private function address resolved as runtime base + `0x47dc8`. No OpenXR instance/session was created by the harness.
+
+## Device identity and enumeration
+
+Persistent identity is the full tracker serial number. Runtime device IDs are session/runtime metadata only.
+
+A five-tracker run enumerated:
 
 ```text
-PC2310MLK7200684G  runtimeDeviceId=4
+PC2310MLK7031247G  runtimeDeviceId=1
+PC2310MLK7031254G  runtimeDeviceId=2
 PC2310MLK8040979G  runtimeDeviceId=3
+PC2310MLK7200684G  runtimeDeviceId=4
+PC2310MLK7200128G  runtimeDeviceId=5
 ```
 
-Persistent identity remains the full serial number. The runtime device ID is treated as session/runtime metadata only.
+Existing runtime IDs remained stable while trackers were added during the staged 2 -> 3 -> 4 -> 5 validation sequence.
 
-The one-time TrackerInfo enumeration reported:
+The one-time `TrackerInfo` enumeration reports:
 
 ```text
 intentionallyLeakedEnumerationBytes=360
 ```
 
-This is consistent with a five-entry allocation at 72 bytes per `TrackerInfo`; it is not a count of connected trackers.
+This is consistent with a five-entry allocation at 72 bytes per `TrackerInfo`; it is allocation capacity, not the number of connected trackers.
 
-## Startup and runtime access
+### Dynamic discovery behavior
 
-Observed successful sequence:
+The backend device registry is startup-enumerated.
+
+Observed behavior:
 
 ```text
-System.loadLibrary(test JNI)
-    -> pico_ot_create()
-    -> pico_ot_start()
-    -> strict Build ID verification
-    -> runtime diagnostics
-    -> TrackerInfo enumeration
-    -> continuous pico_ot_poll_pose()
+known tracker power-cycle
+    -> ReinitializeRuntime()
+    -> recovery possible without re-enumeration
+
+tracker absent at Backend start
+    -> tracker powered on later
+    -> ReinitializeRuntime()
+    -> new serial is NOT added to the Backend registry
+
+same tracker configuration
+    -> Backend Stop/Start
+    -> TrackerInfo re-enumeration
+    -> newly powered tracker appears
 ```
 
-`pico_ot_start()` returned success and the recovered private function address resolved as runtime base + `0x47dc8`.
+Therefore the validated initial policy is:
 
-No OpenXR instance/session was created by the harness.
+```text
+known-device recovery  -> ReinitializeRuntime()
+topology/device change -> Backend restart / re-enumeration
+```
 
-## Component validity observations
+Repeated enumeration remains disabled by default because allocator ownership is unresolved.
 
-### Initial IMU-only / no optical position
+## Validity model
 
-Both connected trackers were observed with:
+Connection snapshot, positional validity, orientation sample presence, and vendor raw state are separate states.
+
+Observed combinations include:
 
 ```text
 connectedSnapshot=1
@@ -73,38 +95,14 @@ positionValid=0
 orientationSamplePresent=1
 ```
 
-During this condition:
+During optical loss:
 
-- orientation continued to update;
-- angular velocity continued to update;
-- position was often frozen;
-- linear velocity was commonly zero.
+- orientation continues to update;
+- angular velocity continues to update;
+- position may freeze;
+- linear velocity commonly becomes zero.
 
-This confirms that connection, positional validity, and orientation sample availability are separate states.
-
-### 6DoF acquisition
-
-Trackers subsequently transitioned to:
-
-```text
-positionValid=1
-```
-
-with changing position and non-zero linear velocity. Simultaneous two-tracker 6DoF operation was observed.
-
-### Optical loss and reacquisition
-
-Complete transitions were observed repeatedly:
-
-```text
-positionValid=1
-    -> positionValid=0
-    -> positionValid=1
-```
-
-Orientation samples continued during invalid-position intervals.
-
-Importantly, the numeric position field is **not guaranteed to remain frozen while invalid**. During reacquisition it was observed to change before `positionValid` returned to true.
+During reacquisition the numeric position field can change while `positionValid == false`.
 
 Consumer rule:
 
@@ -113,68 +111,31 @@ if positionValid == false:
     do not consume position
 ```
 
-Do not infer positional validity from whether the position value is frozen, moving, plausible, or near the previous sample.
+The raw tracking/state byte at vendor offset `+65` has been observed as `0`, `1`, `2`, `3`, and `4`. It does not map cleanly to positional validity and remains diagnostic-only.
 
-## Raw vendor byte +65
+No universal vendor orientation-valid bit has been proven. The backend reports `orientationSamplePresent` for a sane quaternion sample rather than claiming `orientationValid`.
 
-The raw tracking/state byte at offset `+65` was observed with values including:
-
-```text
-0
-1
-2
-3
-4
-```
-
-It does not map cleanly to positional validity. In particular, samples were repeatedly observed with:
-
-```text
-positionValid=1, state65=0
-```
-
-Invalid-position samples were also observed with state values `0`, `2`, and `4`.
-
-Therefore `rawTrackingState65` remains diagnostic-only. Output modules must not use it as the sole tracking-validity switch.
-
-## Timestamp semantics and polling-rate validation
+## Timestamp semantics
 
 The backend preserves:
 
 - vendor output timestamp from offset `+0` as `sourceTimestamp`;
 - local `CLOCK_MONOTONIC` observation/query timestamp as `observedMonotonicNs`;
-- dynamically mapped source->local monotonic timestamp.
+- dynamically mapped source -> local monotonic timestamp.
 
-`mappedMonotonicValid` remained true throughout the stress runs. No fixed source/local offset is assumed by the backend.
+`mappedMonotonicValid` remained true throughout the stress/lifecycle runs.
 
-### Important timestamp observation
+`CurrentFirmwareRuntimeAdapter::ReadTrackerPose()` passes the local monotonic timestamp as the timestamp argument to `getBodyTrackerData()`. Across the 120 Hz stress run, the returned vendor timestamp tracked that query timestamp almost exactly, with a run-specific fixed clock-domain offset.
 
-`CurrentFirmwareRuntimeAdapter::ReadTrackerPose()` passes the local `CLOCK_MONOTONIC` value (`observedNs`) as the timestamp argument to `getBodyTrackerData()`.
+Therefore distinct source timestamps at 60/120 Hz prove stable service of distinct query times, not a native 60/120 Hz sensor publication rate.
 
-Across the 120 Hz stress log, the returned vendor `sourceTimestamp` tracked that query timestamp almost perfectly:
+## Query-rate stress
 
-```text
-sourceTimestamp - observedMonotonicNs
-    ~= 9,106,271,118,823 ns
-```
+### 60 Hz
 
-Across the logged pose samples the observed range of that offset was only about 53 ns, and the per-call source-timestamp delta was effectively identical to the local observation/query delta.
+Two connected trackers were queried at a nominal 60 Hz during rapid motion, occlusion, and reacquisition.
 
-This strongly indicates that the `+0` field is the vendor-clock representation of the requested/query time (or a directly derived prediction timestamp), rather than an independent raw sensor acquisition timestamp.
-
-Therefore:
-
-- distinct `sourceTimestamp` values at 60/120 Hz prove that the private API successfully services distinct query times at those rates;
-- they **do not prove** that the physical tracker sensors or optical solver natively publish new measurements at 60/120 Hz;
-- the earlier term `source cadence` should not be interpreted as a native sensor frame rate.
-
-The dynamic mapper remains useful because the vendor clock domain has a run-dependent offset from local `CLOCK_MONOTONIC`, and lifecycle testing must verify continuity/rebasing behavior.
-
-### 60 Hz query stress
-
-The harness polled each connected tracker at a target rate of 60 Hz while both trackers were deliberately moved rapidly, mixed in the cameras' view, repeatedly occluded, and reacquired.
-
-The run lasted approximately 26 seconds and produced 26 one-second windows per tracker. Every window reported:
+Each one-second window reported:
 
 ```text
 polls=60
@@ -182,13 +143,13 @@ unique=60
 repeats=0
 ```
 
-No `PicoOTTest` poll/start error, native crash, or decoder sanity failure was observed during the run.
+No vendor-call error, decoder failure, or native crash was observed.
 
-### 120 Hz query stress
+### 120 Hz-class, two trackers
 
-A subsequent run used a target query rate of 120 Hz with similar rapid motion, repeated occlusion/reacquisition, and a final stationary period.
+A subsequent two-tracker run used a nominal 120 Hz query rate.
 
-For each tracker, 23 complete one-second windows were captured:
+Each tracker produced 23 complete windows:
 
 ```text
 23 windows x 120 polls = 2760 polls/tracker
@@ -196,142 +157,140 @@ unique timestamps        = 2760
 repeated timestamps      = 0
 ```
 
-Observed loop/query-rate summaries were:
+Observed effective cadence was approximately 116-118 Hz per tracker. The harness is not a hard real-time scheduler; the result establishes 120 Hz-class query stability, not sensor update rate.
+
+### 120 Hz-class, five trackers
+
+The final five-tracker run held all five serials in one Backend instance for approximately 41 seconds.
+
+Across all five trackers, 195 one-second cadence windows were observed. Every captured window reported:
 
 ```text
-PC2310MLK8040979G
-  estimated query cadence: 116.47 .. 118.26 Hz
-  mean:                    ~117.12 Hz
-  largest logged delta:    13.189193 ms
-
-PC2310MLK7200684G
-  estimated query cadence: 116.46 .. 118.06 Hz
-  mean:                    ~117.11 Hz
-  largest logged delta:    12.481745 ms
+polls=120
+unique=120
+repeats=0
 ```
 
-The achieved rate is slightly below the nominal 120 Hz because the validation loop sleeps for one nominal period after doing both tracker calls and logging/accounting work; this harness is not a hard real-time scheduler.
+Effective cadence was generally approximately 116-117 Hz per tracker after startup, with no timestamp repetition, vendor-call failure, decoder failure, or native crash attributable to five-tracker operation.
 
-The important result is that the private API remained stable under approximately 117 queries/second/tracker with two trackers, rapid motion, optical loss/reacquisition, and no repeated query timestamps, vendor-call errors, decoder failures, or native crashes.
+All five trackers achieved valid 6DoF in the same run, and every tracker independently demonstrated motion and optical loss/reacquisition.
 
-This establishes **120 Hz-class query stability**, not the tracker sensor/optical native update ceiling.
-
-## Final stationary observations
-
-During the final low-motion region (approximately loop 2600 onward in the 120 Hz run):
-
-- `PC2310MLK7200684G` retained valid optical position for most of the interval; logged valid-position linear-speed magnitude averaged about 0.0058 m/s and peaked around 0.0126 m/s before position later became invalid near the end;
-- its angular-speed magnitude averaged about 0.0020 rad/s in that low-motion region;
-- `PC2310MLK8040979G` remained position-invalid during the same final region, with frozen/invalid position and zero linear velocity, while orientation continued and angular-speed magnitude also settled to about 0.0020 rad/s.
-
-This is consistent with small residual tracking/estimation noise when stationary and with continued IMU orientation service while optical position is invalid.
+This establishes five-tracker high-rate Backend stability on the validated runtime.
 
 ## ReinitializeRuntime while tracking
 
-`ReinitializeRuntime()` was invoked while `PC2310MLK7200684G` had valid 6DoF position. The call completed immediately with:
+`ReinitializeRuntime()` was invoked while a tracker had valid 6DoF. The call completed with:
 
 ```text
 REINITIALIZE status=ok trackerMap=rebuilt clockMapper=reset
 ```
 
-The tracker remained `positionValid=1` across the call. The observed pose delta across adjacent logged samples was sub-millimeter in position and negligible in orientation, with no velocity spike, polling error, crash, or timestamp-mapping failure. This indicates that `initTrackerMap()` can be called during normal tracking without causing an obvious pose reset on the tested runtime.
+The tracker remained position-valid across the call, with sub-millimeter adjacent logged position delta, negligible orientation delta, no velocity spike, no polling failure, and immediate valid timestamp mapping.
 
-## Tracker power-cycle and reconnect recovery
+## Known-tracker power-cycle recovery
 
-A long-lived harness run then exercised a tracker power-cycle. `PC2310MLK7200684G` was initially tracking normally, then entered a clear stale-output state: `positionValid=0`, while the returned quaternion and angular velocity became byte-for-byte constant across repeated polls. The backend's `connectedSnapshot` remained `1`, confirming that this field is only the startup enumeration snapshot and must not be treated as live connection state.
+A previously registered tracker was powered off and entered a stale-output condition:
 
-While stale, polling still returned success and query timestamps continued to advance. Therefore neither successful `getBodyTrackerData()` calls nor advancing timestamps are sufficient evidence that a physical tracker is currently delivering live samples.
+- `positionValid=0`;
+- quaternion/angular velocity became byte-for-byte constant;
+- `connectedSnapshot` remained `1`;
+- poll calls still succeeded;
+- timestamps continued to advance.
 
-After the tracker was powered back on, `ReinitializeRuntime()` was invoked at `01:21:05.995`. The call succeeded and reset the clock mapper. Within several seconds the previously stale tracker began producing changing orientation/pose data again, and by approximately `01:21:12.047` it had returned to:
+This proves that startup connection state, successful polling, and advancing timestamps are not sufficient proof of a physically live tracker.
 
-```text
-serial=PC2310MLK7200684G
-runtimeDeviceId=4
-positionValid=1
-orientationSamplePresent=1
-```
+After the tracker was powered back on, `ReinitializeRuntime()` rebuilt the tracker map and the same serial/runtime ID resumed changing data, then reacquired optical position.
 
-The same serial and runtime device ID were retained in this run. No repeated TrackerInfo enumeration was required for this recovery path.
-
-Observed recovery sequence:
-
-```text
-live 6DoF
-  -> tracker power interruption
-  -> stale frozen payload, connectedSnapshot still 1
-  -> tracker powered back on
-  -> ReinitializeRuntime()
-  -> orientation/data stream resumes
-  -> optical position reacquires a few seconds later
-```
-
-This makes `ReinitializeRuntime()` a viable recovery primitive for a previously known/registered tracker on the tested runtime. It does **not** solve discovery of newly added devices, removal of stale registry entries, or authoritative live connection-state reporting; those still require a separate device-state strategy.
+Known-tracker recovery through `ReinitializeRuntime()` is therefore validated.
 
 ## HMD sleep/resume lifecycle
 
-A fresh harness process (PID `13958`) was started and allowed to acquire 6DoF before the HMD was put to sleep and later resumed. The process and polling thread remained alive throughout the sleep interval; there was no process restart or log gap attributable to the sleep itself.
+The HMD was put to sleep after 6DoF acquisition while the non-XR harness remained running.
 
-For `PC2310MLK7200684G`, valid optical position was lost at approximately `01:28:05.357`. During the following roughly 24 seconds:
+During sleep:
 
-- `positionValid=0`;
-- orientation samples continued to change;
-- polling continued at approximately 116--118 Hz per tracker;
-- each one-second cadence window continued to report `polls=120`, `unique=120`, `repeats=0`;
-- `mappedMonotonicValid=1` remained true on every logged pose sample;
-- no poll error, decoder failure, native crash, `SIGSEGV`, or `SIGABRT` was observed.
+- the process and poll thread stayed alive;
+- position became invalid;
+- orientation continued;
+- approximately 116-118 Hz query service continued;
+- every cadence window remained `120/120/0`;
+- mapped timestamps remained valid;
+- no crash or native error was observed.
 
-Without calling `ReinitializeRuntime()`, the tracker began natural reacquisition after resume and returned to `positionValid=1` at approximately `01:28:29.707`. Several brief valid/invalid transitions followed during optical reacquisition, then stable 6DoF was established again by approximately `01:28:30.984`.
+After HMD resume, optical position naturally reacquired without calling `ReinitializeRuntime()`.
 
-This establishes that the tested HMD sleep/resume cycle does **not** require backend recreation or `ReinitializeRuntime()` for natural recovery.
+A later deliberate post-resume `ReinitializeRuntime()` also completed successfully and preserved timestamp mapping/recovery behavior.
 
-After natural recovery had been observed, `ReinitializeRuntime()` was deliberately invoked at `01:28:39.361` to validate the post-resume runtime state. The tracker had already become position-invalid about 0.29 seconds before the call, so that specific validity drop cannot be attributed to reinitialization. The reinitialize call completed successfully, `mappedMonotonicValid` was immediately valid on subsequent samples, polling cadence remained normal, and optical position reacquired again at approximately `01:28:40.631`.
+Therefore both natural HMD sleep/resume recovery and post-resume reinitialization are validated.
 
-Observed lifecycle sequence:
+## Reference frame / recenter observations
+
+The tracker was moved, held stationary, the PICO HMD was recentered, and the visible playspace displacement was then compensated through OVR/SteamVR playspace movement.
+
+Observed behavior:
+
+- PICO Output A raw tracker pose did not exhibit the corresponding HMD/playspace transform;
+- OVR playspace movement did not feed back into the raw PICO pose;
+- recenter could coincide with temporary `positionValid=false` / optical reacquisition;
+- after reacquisition, the tracker returned in the same raw reference frame rather than a recentered raw origin.
+
+For the tested stack, the useful model is therefore:
 
 ```text
-live 6DoF
-  -> HMD sleep
-  -> position invalid, orientation/query service continues
-  -> HMD resume
-  -> natural optical reacquisition without reinitialize
-  -> stable 6DoF
-  -> ReinitializeRuntime()
-  -> timestamp mapping remains valid
-  -> optical 6DoF continues/reacquires normally
+PICO Output A raw frame
+    -> higher-level HMD/recenter transform
+    -> SteamVR/playspace transform
 ```
+
+The backend should not apply HMD recenter or OVR playspace compensation to `PicoOutputA`. Coordinate conversion and mount/body transforms remain output/integration-layer responsibilities.
 
 ## Confirmed backend behavior
 
-As of this validation:
+As of the completed standalone validation:
 
 ```text
-Android arm64 runtime loading       PASS
-Private ABI guarded call            PASS
-Strict Build ID verification        PASS
-Tracker enumeration                 PASS
-Full-serial identity                PASS
-Position decoding                   PASS
-Quaternion decoding                 PASS
-Linear velocity decoding            PASS
-Angular velocity decoding           PASS
-Dynamic timestamp mapping           PASS
-Position-validity detection         PASS
-Orientation during optical loss     PASS
-Optical reacquisition               PASS
-Two-tracker simultaneous 6DoF       PASS
-60 Hz query stress                  PASS
-120 Hz-class query stress           PASS
-Final stationary behavior           PASS
-Reinitialize during valid 6DoF      PASS
-Known-tracker power-cycle recovery  PASS via ReinitializeRuntime()
-HMD sleep/resume natural recovery   PASS
-Post-resume ReinitializeRuntime     PASS
+Android arm64 runtime loading          PASS
+Private ABI guarded call               PASS
+Strict Build ID verification           PASS
+Tracker enumeration                    PASS
+Full-serial identity                   PASS
+Position decoding                      PASS
+Quaternion decoding                    PASS
+Linear velocity decoding               PASS
+Angular velocity decoding              PASS
+Dynamic timestamp mapping              PASS
+Position-validity detection            PASS
+Orientation during optical loss        PASS
+Optical reacquisition                  PASS
+Two-tracker simultaneous 6DoF          PASS
+60 Hz query stress                     PASS
+120 Hz-class query stress              PASS
+Reinitialize during valid 6DoF         PASS
+Known-tracker power-cycle recovery     PASS via ReinitializeRuntime()
+HMD sleep/resume natural recovery      PASS
+Post-resume ReinitializeRuntime        PASS
+Startup-only device discovery model    CHARACTERIZED
+Backend restart topology refresh       PASS
+PICO recenter/raw-frame behavior       CHARACTERIZED
+OVR playspace/raw-frame isolation      PASS
+Five-tracker enumeration               PASS
+Five-tracker simultaneous 6DoF         PASS
+Five-tracker 120 Hz-class query stress PASS
+Five-tracker loss/reacquisition        PASS
 ```
 
-## Next runtime tests
+## Standalone backend closure
 
-1. Verify live device-state/discovery behavior separately from the startup snapshot, especially for newly added/removed trackers.
-2. Confirm remaining lifecycle/reference-frame tests while Virtual Desktop owns the XR session if that condition has not already been covered explicitly.
-3. Validate PICO reference-frame/recenter behavior before implementing coordinate conversion in an output module.
-4. Validate five-tracker operation before declaring the backend complete.
-5. Only after the standalone backend remains stable, stop and review before starting the SteamVR bridge/output branch.
+The planned standalone PICO Backend hardware validation is complete for the currently pinned runtime profile.
+
+The remaining items are known limitations or higher-layer work, not blockers for closing the Backend validation phase:
+
+- private ABI remains firmware-build specific;
+- `TrackerInfo` allocator ownership is unresolved;
+- dynamic live connection/discovery still needs a future no-leak strategy if required;
+- battery bucket, acceleration semantics, and angular-velocity frame remain provisional;
+- no universal orientation-valid bit has been identified;
+- PICO -> SteamVR/MonakaVR basis conversion and mount/body transforms are intentionally outside the raw backend;
+- SteamVR output is not implemented in this branch.
+
+The Backend phase therefore stops here. The next implementation phase must begin in a separate bridge/output branch after review of the backend contract.
