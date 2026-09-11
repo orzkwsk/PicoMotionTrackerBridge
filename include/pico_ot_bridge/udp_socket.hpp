@@ -50,7 +50,7 @@ public:
                                  std::string* error = nullptr);
 
 private:
-    static constexpr uintptr_t kInvalidHandle = std::numeric_limits<uintptr_t>::max();
+    static constexpr uintptr_t kInvalidHandle = (std::numeric_limits<uintptr_t>::max)();
 
     uintptr_t handle_ = kInvalidHandle;
     uint16_t boundPort_ = 0;
