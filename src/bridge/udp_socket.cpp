@@ -4,6 +4,9 @@
 #include <utility>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -27,7 +30,7 @@ constexpr NativeSocket kNativeInvalidSocket = -1;
 #endif
 
 NativeSocket ToNative(uintptr_t handle) {
-    if (handle == std::numeric_limits<uintptr_t>::max()) {
+    if (handle == (std::numeric_limits<uintptr_t>::max)()) {
         return kNativeInvalidSocket;
     }
     return static_cast<NativeSocket>(handle);
@@ -35,7 +38,7 @@ NativeSocket ToNative(uintptr_t handle) {
 
 uintptr_t FromNative(NativeSocket handle) {
     if (handle == kNativeInvalidSocket) {
-        return std::numeric_limits<uintptr_t>::max();
+        return (std::numeric_limits<uintptr_t>::max)();
     }
     return static_cast<uintptr_t>(handle);
 }
@@ -206,7 +209,7 @@ bool UdpSocket::SendTo(const UdpEndpoint& endpoint,
 
     const NativeSocket socketHandle = ToNative(handle_);
 #ifdef _WIN32
-    if (size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+    if (size > static_cast<size_t>((std::numeric_limits<int>::max)())) {
         if (error) {
             *error = "UDP datagram too large";
         }
@@ -252,7 +255,7 @@ UdpReceiveStatus UdpSocket::ReceiveFrom(uint8_t* buffer,
     sockaddr_in remote{};
 #ifdef _WIN32
     int remoteSize = sizeof(remote);
-    if (capacity > static_cast<size_t>(std::numeric_limits<int>::max())) {
+    if (capacity > static_cast<size_t>((std::numeric_limits<int>::max)())) {
         if (error) {
             *error = "UDP receive buffer too large";
         }
