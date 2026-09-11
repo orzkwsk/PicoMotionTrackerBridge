@@ -123,6 +123,7 @@ The raw tracking/state byte at offset `+65` was observed with values including:
 0
 1
 2
+3
 4
 ```
 
@@ -136,19 +137,44 @@ Invalid-position samples were also observed with state values `0`, `2`, and `4`.
 
 Therefore `rawTrackingState65` remains diagnostic-only. Output modules must not use it as the sole tracking-validity switch.
 
-## Timestamp and 60 Hz source-cadence validation
+## Timestamp semantics and polling-rate validation
 
 The backend preserves:
 
-- raw source timestamp;
-- local `CLOCK_MONOTONIC` observation timestamp;
+- vendor output timestamp from offset `+0` as `sourceTimestamp`;
+- local `CLOCK_MONOTONIC` observation/query timestamp as `observedMonotonicNs`;
 - dynamically mapped source->local monotonic timestamp.
 
-`mappedMonotonicValid` remained true during the logged stress run. No fixed source/local offset is used.
+`mappedMonotonicValid` remained true throughout the stress runs. No fixed source/local offset is assumed by the backend.
 
-A subsequent harness run polled each connected tracker at a target rate of 60 Hz while both trackers were deliberately moved rapidly, mixed in the cameras' view, repeatedly occluded, and reacquired.
+### Important timestamp observation
 
-The run lasted approximately 26 seconds and produced 26 one-second cadence windows per tracker, 52 windows total. Every cadence window reported:
+`CurrentFirmwareRuntimeAdapter::ReadTrackerPose()` passes the local `CLOCK_MONOTONIC` value (`observedNs`) as the timestamp argument to `getBodyTrackerData()`.
+
+Across the 120 Hz stress log, the returned vendor `sourceTimestamp` tracked that query timestamp almost perfectly:
+
+```text
+sourceTimestamp - observedMonotonicNs
+    ~= 9,106,271,118,823 ns
+```
+
+Across the logged pose samples the observed range of that offset was only about 53 ns, and the per-call source-timestamp delta was effectively identical to the local observation/query delta.
+
+This strongly indicates that the `+0` field is the vendor-clock representation of the requested/query time (or a directly derived prediction timestamp), rather than an independent raw sensor acquisition timestamp.
+
+Therefore:
+
+- distinct `sourceTimestamp` values at 60/120 Hz prove that the private API successfully services distinct query times at those rates;
+- they **do not prove** that the physical tracker sensors or optical solver natively publish new measurements at 60/120 Hz;
+- the earlier term `source cadence` should not be interpreted as a native sensor frame rate.
+
+The dynamic mapper remains useful because the vendor clock domain has a run-dependent offset from local `CLOCK_MONOTONIC`, and later sleep/resume testing still needs to verify continuity/rebasing behavior.
+
+### 60 Hz query stress
+
+The harness polled each connected tracker at a target rate of 60 Hz while both trackers were deliberately moved rapidly, mixed in the cameras' view, repeatedly occluded, and reacquired.
+
+The run lasted approximately 26 seconds and produced 26 one-second windows per tracker. Every window reported:
 
 ```text
 polls=60
@@ -156,25 +182,49 @@ unique=60
 repeats=0
 ```
 
-Observed source-rate summary:
+No `PicoOTTest` poll/start error, native crash, or decoder sanity failure was observed during the run.
+
+### 120 Hz query stress
+
+A subsequent run used a target query rate of 120 Hz with similar rapid motion, repeated occlusion/reacquisition, and a final stationary period.
+
+For each tracker, 23 complete one-second windows were captured:
+
+```text
+23 windows x 120 polls = 2760 polls/tracker
+unique timestamps        = 2760
+repeated timestamps      = 0
+```
+
+Observed loop/query-rate summaries were:
 
 ```text
 PC2310MLK8040979G
-  estSourceHz range: 58.92 .. 59.53 Hz
-  mean:              ~59.29 Hz
-  largest delta:     24.029792 ms
+  estimated query cadence: 116.47 .. 118.26 Hz
+  mean:                    ~117.12 Hz
+  largest logged delta:    13.189193 ms
 
 PC2310MLK7200684G
-  estSourceHz range: 58.92 .. 59.53 Hz
-  mean:              ~59.29 Hz
-  largest delta:     23.789401 ms
+  estimated query cadence: 116.46 .. 118.06 Hz
+  mean:                    ~117.11 Hz
+  largest logged delta:    12.481745 ms
 ```
 
-The short min/max delta excursions are scheduling/call-time jitter around an otherwise consistent ~16.87 ms mean interval. Crucially, there were no repeated source timestamps at a 60 Hz polling rate, including during optical loss and rapid motion.
+The achieved rate is slightly below the nominal 120 Hz because the validation loop sleeps for one nominal period after doing both tracker calls and logging/accounting work; this harness is not a hard real-time scheduler.
 
-This establishes that the exposed source stream updates at least fast enough to provide a distinct sample for every ~60 Hz poll under the tested conditions. It does **not** yet prove that the native source ceiling is exactly 60 Hz; a 120 Hz polling test is required to distinguish a ~60 Hz source ceiling from a higher-rate source.
+The important result is that the private API remained stable under approximately 117 queries/second/tracker with two trackers, rapid motion, optical loss/reacquisition, and no repeated query timestamps, vendor-call errors, decoder failures, or native crashes.
 
-No `PicoOTTest` poll/start error, native crash, or decoder sanity failure was observed during the stress run. Logged quaternion samples remained normalized while high angular velocities and repeated optical loss/reacquisition were exercised.
+This establishes **120 Hz-class query stability**, not the tracker sensor/optical native update ceiling.
+
+## Final stationary observations
+
+During the final low-motion region (approximately loop 2600 onward in the 120 Hz run):
+
+- `PC2310MLK7200684G` retained valid optical position for most of the interval; logged valid-position linear-speed magnitude averaged about 0.0058 m/s and peaked around 0.0126 m/s before position later became invalid near the end;
+- its angular-speed magnitude averaged about 0.0020 rad/s in that low-motion region;
+- `PC2310MLK8040979G` remained position-invalid during the same final region, with frozen/invalid position and zero linear velocity, while orientation continued and angular-speed magnitude also settled to about 0.0020 rad/s.
+
+This is consistent with small residual tracking/estimation noise when stationary and with continued IMU orientation service while optical position is invalid.
 
 ## Confirmed backend behavior
 
@@ -195,14 +245,14 @@ Position-validity detection         PASS
 Orientation during optical loss     PASS
 Optical reacquisition               PASS
 Two-tracker simultaneous 6DoF       PASS
-60 Hz distinct-source sampling      PASS
-60 Hz motion/occlusion stress       PASS
+60 Hz query stress                  PASS
+120 Hz-class query stress           PASS
+Final stationary behavior           PASS
 ```
 
 ## Next runtime tests
 
-1. Poll at 120 Hz to identify the source update ceiling and repeated-sample pattern.
-2. Exercise HMD sleep/resume followed by `ReinitializeRuntime()`.
-3. Exercise tracker disconnect/reconnect over a long-lived process.
-4. Repeat while Virtual Desktop owns the XR session.
-5. Only after the standalone backend remains stable, add the SteamVR output module.
+1. Exercise HMD sleep/resume followed by `ReinitializeRuntime()` and verify timestamp continuity/rebasing.
+2. Exercise tracker disconnect/reconnect over a long-lived process.
+3. Repeat while Virtual Desktop owns the XR session.
+4. Only after the standalone backend remains stable, stop and review before starting the SteamVR bridge/output branch.
