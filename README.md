@@ -1,8 +1,13 @@
-# PicoMotionTrackerBackend
+# PicoMotionTrackerBridge
 
-Native, non-XR PICO Motion Tracker backend derived from the `Pico4Ultra_ResearchTools` native-tracker investigation.
+Native PICO Motion Tracker bridge project derived from the `Pico4Ultra_ResearchTools` native-tracker investigation.
 
-The backend reads PICO Motion Tracker state through the internal `libtrackingclient.pxr.so` / `TrackingClient` path and intentionally contains **no SlimeVR, SteamVR, IK, body-role, or OpenXR-session ownership code**.
+The repository is intentionally layered:
+
+- the **backend core** owns PICO-specific runtime access, decoding, device identity, validity semantics, unit normalization, and timestamp mapping;
+- **bridge/output modules** consume that normalized state and expose it to systems such as SteamVR or MonakaVR.
+
+The current `feature/pico-ot-backend` branch implements and validates the backend core plus a minimal Android test harness. SteamVR output is the next bridge layer and is not implemented yet.
 
 ## Source of truth
 
@@ -29,12 +34,15 @@ Backend normalization
         ↓
 TrackerState (SI units, PICO Output-A frame)
         ↓
-consumer wrapper / bridge
+Bridge output / integration
+        ├─ SteamVR generic tracker        [planned]
+        ├─ MonakaVR input adapter         [planned]
+        └─ other consumers / IPC          [future]
 ```
 
-The first runtime adapter uses the research-proven `getBodyTrackerData()` Output A path. It does not create an OpenXR instance/session and is designed to coexist with Virtual Desktop owning the XR session.
+The backend runtime path does not create an OpenXR instance/session and is designed to coexist with Virtual Desktop owning the XR session.
 
-## Implemented contract
+## Backend contract
 
 - Persistent identity: full tracker serial number.
 - Runtime device ID: metadata only; never used as persistent identity.
@@ -60,24 +68,34 @@ The first runtime adapter uses the research-proven `getBodyTrackerData()` Output
 
 ## Important validity semantics
 
-`getBodyTrackerData() == 0` is **not** a connection test.
+`getBodyTrackerData() == 0` is **not** a connection or positional-validity test.
 
-During optical loss the researched runtime keeps the tracker connected, freezes position, sets `+64` to zero, zeros linear velocity, and continues IMU-derived orientation/angular velocity. Therefore consumers should treat the sample as component-valid:
+Validated on PICO 4 Ultra on 2026-09-11:
 
 ```text
 connected       <- TrackerInfo connection snapshot
 positionValid   <- algo_result_tracker byte +64
-orientation     <- sample remains present during optical loss
-raw state +65   <- diagnostics only; not the sole validity flag
+orientation     <- sane quaternion sample can continue during optical loss
+raw state +65   <- diagnostics only; not a validity flag
 ```
+
+Observed optical-loss behavior includes frozen position and zero linear velocity while orientation/angular velocity continue. However, during reacquisition the vendor position field can change **while `positionValid == 0`**. Consumers must therefore ignore position whenever `positionValid` is false; they must not infer validity from whether position is changing or frozen.
+
+The raw byte at `+65` has been observed as `0`, `1`, `2`, and `4`, including `state65=0` while `positionValid=1`. It is preserved for diagnostics only.
 
 The backend deliberately names the orientation flag `orientationSamplePresent`, not `orientationValid`, because a universal vendor orientation-valid flag has not been recovered.
 
 ## Runtime compatibility guard
 
-`getBodyTrackerData()` was recovered at `libtrackingclient.pxr.so + 0x47dc8` for the research runtime. This is not a public ABI.
+`getBodyTrackerData()` was recovered at `libtrackingclient.pxr.so + 0x47dc8` for the currently validated runtime. This is not a public ABI.
 
-The adapter reads the ELF GNU Build ID of the loaded library. Production use should set `expectedLibraryBuildIdHex`; otherwise startup fails by default. Research/development can explicitly set `allowUnverifiedRuntime=true` / `allow_unverified_runtime=1` to use the recovered offset while recording the actual Build ID in runtime diagnostics.
+Validated GNU Build ID:
+
+```text
+d1b55bc0598ffff93cc01eaf089793f8
+```
+
+Production/normal bridge use should pin this Build ID through `expectedLibraryBuildIdHex` / `expected_library_build_id_hex` and keep `allowUnverifiedRuntime=false`. Research against a new firmware may explicitly enable the unverified-runtime override only long enough to identify and validate the new runtime.
 
 Do not silently carry the offset to a new PICO firmware build.
 
@@ -85,18 +103,20 @@ Do not silently carry the offset to a new PICO firmware build.
 
 `getSwiftTrackerConnectState(std::vector<TrackerInfo>&)` allocates the vector buffer inside vendor/system libc++. The research probe intentionally did not free this buffer because cross-runtime allocator ownership has not been proven safe.
 
-This backend preserves that safety rule:
+The backend preserves that safety rule:
 
 - initial enumeration is allowed once;
 - repeated enumeration is **disabled by default**;
 - the bounded leaked allocation is reported in `RuntimeDiagnostics::intentionallyLeakedEnumerationBytes`;
 - `allowRepeatedLeakyEnumeration` exists only as an explicit investigation escape hatch.
 
+On the validated runtime the one-time enumeration reports `360` intentionally leaked bytes, consistent with a five-entry `TrackerInfo` allocation at 72 bytes per entry. This is allocation capacity, not the number of connected trackers.
+
 A production long-running connection-state poller still needs a proven vendor-compatible vector destruction/free path, Binder-level enumeration, or another no-leak API/callback.
 
 ## Mandatory prohibited paths
 
-The backend does not and must not:
+The backend core does not and must not:
 
 - call `GetSwiftBattery(fullSerial, ...)`;
 - create/fake an OpenXR session;
@@ -104,12 +124,39 @@ The backend does not and must not:
 - use `Pxr_SetUserDefinedSettings()` as bootstrap;
 - manually call `newTrackerClient::setShareMemoryFD()` / `resetShareMemory()`;
 - change tracker pairing/tracking mode;
-- perform reset/calibration from the reader;
+- perform reset/calibration from the raw reader;
 - use runtime deviceId as persistent identity;
 - bake the measured A->B transform into the runtime reader;
 - bake body/device mount correction into the raw runtime adapter.
 
-The `GetSwiftBattery` full-serial path is known to abort `pvrtrackingservice` through an uncaught `std::invalid_argument` and is intentionally absent from this repository.
+The `GetSwiftBattery` full-serial path is known to abort `pvrtrackingservice` through an uncaught `std::invalid_argument` and is intentionally absent.
+
+## Validation status
+
+Completed:
+
+- Windows/MSVC host build;
+- decoder/clock CTest;
+- Android arm64-v8a NDK build;
+- APK install/start on PICO 4 Ultra;
+- strict runtime path execution through `libtrackingclient.pxr.so`;
+- two-tracker enumeration;
+- continuous pose polling;
+- optical loss and reacquisition;
+- IMU orientation/angular-velocity continuation while position is invalid;
+- simultaneous two-tracker 6DoF operation;
+- dynamic source-to-monotonic timestamp mapping.
+
+Still to validate before treating the bridge runtime as production-ready:
+
+- 60/120 Hz polling and actual vendor sample cadence;
+- HMD sleep/resume + `ReinitializeRuntime()` recovery;
+- disconnect/reconnect behavior over a long-lived process;
+- Virtual Desktop coexistence regression;
+- allocator-safe dynamic device refresh;
+- SteamVR output layer.
+
+See `docs/RUNTIME_VALIDATION.md` for observed runtime semantics.
 
 ## Build
 
@@ -123,14 +170,16 @@ ctest --test-dir build --output-on-failure
 
 Android runtime target: arm64-v8a / API 29 or later. Build with the Android NDK CMake toolchain; the Android target links `dl` and `log` and includes the AArch64 singleton-call shim.
 
+The repository also contains `BackendTestApp`, a non-XR Android validation harness used before connecting the backend to an output module.
+
 ## C ABI quick start
 
 ```c
 pico_ot_config_t cfg;
 pico_ot_default_config(&cfg);
 
-// Research only until the tested libtrackingclient GNU Build ID is pinned:
-cfg.allow_unverified_runtime = 1;
+cfg.expected_library_build_id_hex = "d1b55bc0598ffff93cc01eaf089793f8";
+cfg.allow_unverified_runtime = 0;
 
 pico_ot_backend_t* backend = pico_ot_create();
 if (pico_ot_start(backend, &cfg) == PICO_OT_OK) {
@@ -141,19 +190,30 @@ if (pico_ot_start(backend, &cfg) == PICO_OT_OK) {
 
         pico_ot_pose_t pose;
         pico_ot_poll_pose(backend, dev.serial, &pose);
+
+        if (pose.position_valid) {
+            // Position may be consumed.
+        }
+        // orientation_sample_present is intentionally independent of position_valid.
     }
 }
 pico_ot_destroy(backend);
 ```
 
-## Intended next layer
+## Bridge layering
 
-A separate wrapper/bridge should consume this backend and decide how to expose:
+The backend core intentionally remains usable without SteamVR, but this repository is the bridge project. Output-specific policy should be added as separate modules rather than folded into the private PICO runtime adapter.
 
-- 6DoF position+orientation,
-- IMU/orientation-only data during optical loss,
-- simultaneous 6DoF + IMU logical streams,
-- SlimeVR input,
-- direct SteamVR generic tracker output.
+```text
+backend/
+  PICO runtime + normalized tracker state
 
-Those policies intentionally do not belong in this backend.
+outputs/
+  steamvr/       [next]
+  ...
+
+integrations/
+  monaka/        [future]
+```
+
+This keeps PICO firmware-sensitive code isolated while still allowing the repository to provide a complete standalone PICO-to-SteamVR bridge.
