@@ -60,6 +60,22 @@ else()
     target_compile_options(pico_ot_bridge_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+# Cross-platform UDP transport used by the Android sender and PC receiver.
+add_library(pico_ot_bridge_transport STATIC
+    src/bridge/udp_socket.cpp)
+add_library(PicoOT::BridgeTransport ALIAS pico_ot_bridge_transport)
+target_compile_features(pico_ot_bridge_transport PUBLIC cxx_std_17)
+target_include_directories(pico_ot_bridge_transport
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(pico_ot_bridge_transport PUBLIC PicoOT::BridgeCore)
+
+if(MSVC)
+    target_compile_options(pico_ot_bridge_transport PRIVATE /W4 /permissive-)
+    target_link_libraries(pico_ot_bridge_transport PRIVATE ws2_32)
+else()
+    target_compile_options(pico_ot_bridge_transport PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     enable_testing()
 
@@ -97,4 +113,15 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
         target_compile_options(pico_ot_bridge_clock_sync_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
     add_test(NAME pico_ot_bridge_clock_sync_tests COMMAND pico_ot_bridge_clock_sync_tests)
+
+    add_executable(pico_ot_bridge_udp_socket_tests
+        tests/udp_socket_tests.cpp)
+    target_compile_features(pico_ot_bridge_udp_socket_tests PRIVATE cxx_std_17)
+    target_link_libraries(pico_ot_bridge_udp_socket_tests PRIVATE PicoOT::BridgeTransport)
+    if(MSVC)
+        target_compile_options(pico_ot_bridge_udp_socket_tests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(pico_ot_bridge_udp_socket_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME pico_ot_bridge_udp_socket_tests COMMAND pico_ot_bridge_udp_socket_tests)
 endif()
