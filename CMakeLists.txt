@@ -48,7 +48,8 @@ endif()
 # can share the exact same packet and clock-domain semantics.
 add_library(pico_ot_bridge_core STATIC
     src/bridge/protocol.cpp
-    src/bridge/clock_sync.cpp)
+    src/bridge/clock_sync.cpp
+    src/bridge/monotonic_clock.cpp)
 add_library(PicoOT::BridgeCore ALIAS pico_ot_bridge_core)
 target_compile_features(pico_ot_bridge_core PUBLIC cxx_std_17)
 target_include_directories(pico_ot_bridge_core
@@ -61,13 +62,17 @@ else()
 endif()
 
 # Cross-platform UDP transport used by the Android sender and PC receiver.
+# Publisher depends on the normalized Backend types but not on private runtime
+# implementation details.
 add_library(pico_ot_bridge_transport STATIC
-    src/bridge/udp_socket.cpp)
+    src/bridge/udp_socket.cpp
+    src/bridge/publisher.cpp)
 add_library(PicoOT::BridgeTransport ALIAS pico_ot_bridge_transport)
 target_compile_features(pico_ot_bridge_transport PUBLIC cxx_std_17)
 target_include_directories(pico_ot_bridge_transport
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(pico_ot_bridge_transport PUBLIC PicoOT::BridgeCore)
+target_link_libraries(pico_ot_bridge_transport
+    PUBLIC PicoOT::BridgeCore PicoOT::Backend)
 
 if(MSVC)
     target_compile_options(pico_ot_bridge_transport PRIVATE /W4 /permissive-)
@@ -124,4 +129,15 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
         target_compile_options(pico_ot_bridge_udp_socket_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
     add_test(NAME pico_ot_bridge_udp_socket_tests COMMAND pico_ot_bridge_udp_socket_tests)
+
+    add_executable(pico_ot_bridge_publisher_tests
+        tests/publisher_tests.cpp)
+    target_compile_features(pico_ot_bridge_publisher_tests PRIVATE cxx_std_17)
+    target_link_libraries(pico_ot_bridge_publisher_tests PRIVATE PicoOT::BridgeTransport)
+    if(MSVC)
+        target_compile_options(pico_ot_bridge_publisher_tests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(pico_ot_bridge_publisher_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME pico_ot_bridge_publisher_tests COMMAND pico_ot_bridge_publisher_tests)
 endif()
