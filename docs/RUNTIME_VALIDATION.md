@@ -168,7 +168,7 @@ Therefore:
 - they **do not prove** that the physical tracker sensors or optical solver natively publish new measurements at 60/120 Hz;
 - the earlier term `source cadence` should not be interpreted as a native sensor frame rate.
 
-The dynamic mapper remains useful because the vendor clock domain has a run-dependent offset from local `CLOCK_MONOTONIC`, and later sleep/resume testing still needs to verify continuity/rebasing behavior.
+The dynamic mapper remains useful because the vendor clock domain has a run-dependent offset from local `CLOCK_MONOTONIC`, and lifecycle testing must verify continuity/rebasing behavior.
 
 ### 60 Hz query stress
 
@@ -267,6 +267,39 @@ live 6DoF
 
 This makes `ReinitializeRuntime()` a viable recovery primitive for a previously known/registered tracker on the tested runtime. It does **not** solve discovery of newly added devices, removal of stale registry entries, or authoritative live connection-state reporting; those still require a separate device-state strategy.
 
+## HMD sleep/resume lifecycle
+
+A fresh harness process (PID `13958`) was started and allowed to acquire 6DoF before the HMD was put to sleep and later resumed. The process and polling thread remained alive throughout the sleep interval; there was no process restart or log gap attributable to the sleep itself.
+
+For `PC2310MLK7200684G`, valid optical position was lost at approximately `01:28:05.357`. During the following roughly 24 seconds:
+
+- `positionValid=0`;
+- orientation samples continued to change;
+- polling continued at approximately 116--118 Hz per tracker;
+- each one-second cadence window continued to report `polls=120`, `unique=120`, `repeats=0`;
+- `mappedMonotonicValid=1` remained true on every logged pose sample;
+- no poll error, decoder failure, native crash, `SIGSEGV`, or `SIGABRT` was observed.
+
+Without calling `ReinitializeRuntime()`, the tracker began natural reacquisition after resume and returned to `positionValid=1` at approximately `01:28:29.707`. Several brief valid/invalid transitions followed during optical reacquisition, then stable 6DoF was established again by approximately `01:28:30.984`.
+
+This establishes that the tested HMD sleep/resume cycle does **not** require backend recreation or `ReinitializeRuntime()` for natural recovery.
+
+After natural recovery had been observed, `ReinitializeRuntime()` was deliberately invoked at `01:28:39.361` to validate the post-resume runtime state. The tracker had already become position-invalid about 0.29 seconds before the call, so that specific validity drop cannot be attributed to reinitialization. The reinitialize call completed successfully, `mappedMonotonicValid` was immediately valid on subsequent samples, polling cadence remained normal, and optical position reacquired again at approximately `01:28:40.631`.
+
+Observed lifecycle sequence:
+
+```text
+live 6DoF
+  -> HMD sleep
+  -> position invalid, orientation/query service continues
+  -> HMD resume
+  -> natural optical reacquisition without reinitialize
+  -> stable 6DoF
+  -> ReinitializeRuntime()
+  -> timestamp mapping remains valid
+  -> optical 6DoF continues/reacquires normally
+```
+
 ## Confirmed backend behavior
 
 As of this validation:
@@ -291,13 +324,14 @@ Two-tracker simultaneous 6DoF       PASS
 Final stationary behavior           PASS
 Reinitialize during valid 6DoF      PASS
 Known-tracker power-cycle recovery  PASS via ReinitializeRuntime()
+HMD sleep/resume natural recovery   PASS
+Post-resume ReinitializeRuntime     PASS
 ```
 
 ## Next runtime tests
 
-1. Exercise HMD sleep/resume followed by `ReinitializeRuntime()` and verify timestamp continuity/rebasing.
-2. Verify live device-state/discovery behavior separately from the startup snapshot, especially for newly added/removed trackers.
-3. Repeat remaining lifecycle tests while Virtual Desktop owns the XR session if that condition has not already been covered explicitly.
-4. Validate PICO reference-frame/recenter behavior before implementing coordinate conversion in an output module.
-5. Validate five-tracker operation before declaring the backend complete.
-6. Only after the standalone backend remains stable, stop and review before starting the SteamVR bridge/output branch.
+1. Verify live device-state/discovery behavior separately from the startup snapshot, especially for newly added/removed trackers.
+2. Confirm remaining lifecycle/reference-frame tests while Virtual Desktop owns the XR session if that condition has not already been covered explicitly.
+3. Validate PICO reference-frame/recenter behavior before implementing coordinate conversion in an output module.
+4. Validate five-tracker operation before declaring the backend complete.
+5. Only after the standalone backend remains stable, stop and review before starting the SteamVR bridge/output branch.
