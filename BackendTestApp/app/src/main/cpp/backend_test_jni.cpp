@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cinttypes>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -15,12 +16,28 @@
 namespace {
 
 constexpr const char* kTag = "PicoOTTest";
-constexpr auto kPollPeriod = std::chrono::milliseconds(100); // 10 Hz initial validation
+constexpr const char* kExpectedBuildId = "d1b55bc0598ffff93cc01eaf089793f8";
+constexpr uint32_t kPollHz = 60;
+constexpr uint32_t kPoseLogHz = 10;
+constexpr uint32_t kPoseLogEveryLoops = kPollHz / kPoseLogHz;
+constexpr auto kPollPeriod = std::chrono::nanoseconds(1000000000LL / kPollHz);
 
 std::mutex gLifecycleMutex;
 pico_ot_backend_t* gBackend = nullptr;
 std::thread gPollThread;
 std::atomic<bool> gRun{false};
+
+struct CadenceStats {
+    uint64_t polls = 0;
+    uint64_t uniqueSamples = 0;
+    uint64_t repeatedSamples = 0;
+    uint64_t lastSourceTimestamp = 0;
+    bool hasLastSourceTimestamp = false;
+    uint64_t minUniqueDeltaNs = std::numeric_limits<uint64_t>::max();
+    uint64_t maxUniqueDeltaNs = 0;
+    long double uniqueDeltaSumNs = 0.0L;
+    uint64_t uniqueDeltaCount = 0;
+};
 
 void LogInfo(const char* message) {
     __android_log_print(ANDROID_LOG_INFO, kTag, "%s", message);
@@ -34,6 +51,71 @@ void LogError(pico_ot_backend_t* backend, const char* where, pico_ot_status_code
         static_cast<int>(rc),
         backend ? pico_ot_last_vendor_code(backend) : 0,
         backend ? pico_ot_last_error(backend) : "no backend");
+}
+
+void ResetCadenceWindow(CadenceStats& stats) {
+    stats.polls = 0;
+    stats.uniqueSamples = 0;
+    stats.repeatedSamples = 0;
+    stats.minUniqueDeltaNs = std::numeric_limits<uint64_t>::max();
+    stats.maxUniqueDeltaNs = 0;
+    stats.uniqueDeltaSumNs = 0.0L;
+    stats.uniqueDeltaCount = 0;
+    // Preserve lastSourceTimestamp across windows so the first sample in the next
+    // window can still contribute a real inter-sample delta.
+}
+
+uint64_t ObserveCadence(CadenceStats& stats, uint64_t sourceTimestamp) {
+    ++stats.polls;
+
+    uint64_t delta = 0;
+    if (!stats.hasLastSourceTimestamp) {
+        stats.hasLastSourceTimestamp = true;
+        stats.lastSourceTimestamp = sourceTimestamp;
+        ++stats.uniqueSamples;
+        return 0;
+    }
+
+    if (sourceTimestamp == stats.lastSourceTimestamp) {
+        ++stats.repeatedSamples;
+        return 0;
+    }
+
+    ++stats.uniqueSamples;
+    if (sourceTimestamp > stats.lastSourceTimestamp) {
+        delta = sourceTimestamp - stats.lastSourceTimestamp;
+        if (delta < stats.minUniqueDeltaNs) stats.minUniqueDeltaNs = delta;
+        if (delta > stats.maxUniqueDeltaNs) stats.maxUniqueDeltaNs = delta;
+        stats.uniqueDeltaSumNs += static_cast<long double>(delta);
+        ++stats.uniqueDeltaCount;
+    }
+
+    stats.lastSourceTimestamp = sourceTimestamp;
+    return delta;
+}
+
+void LogCadenceWindow(const std::string& serial, const CadenceStats& stats) {
+    const uint64_t minDelta = stats.uniqueDeltaCount == 0 ? 0 : stats.minUniqueDeltaNs;
+    const uint64_t avgDelta = stats.uniqueDeltaCount == 0
+        ? 0
+        : static_cast<uint64_t>(stats.uniqueDeltaSumNs / static_cast<long double>(stats.uniqueDeltaCount));
+    const double estimatedSourceHz = avgDelta == 0
+        ? 0.0
+        : 1000000000.0 / static_cast<double>(avgDelta);
+
+    __android_log_print(
+        ANDROID_LOG_INFO, kTag,
+        "CADENCE sn=%s targetPollHz=%u polls=%" PRIu64 " unique=%" PRIu64 " repeats=%" PRIu64
+        " minDeltaNs=%" PRIu64 " avgDeltaNs=%" PRIu64 " maxDeltaNs=%" PRIu64 " estSourceHz=%.2f",
+        serial.c_str(),
+        kPollHz,
+        stats.polls,
+        stats.uniqueSamples,
+        stats.repeatedSamples,
+        minDelta,
+        avgDelta,
+        stats.maxUniqueDeltaNs,
+        estimatedSourceHz);
 }
 
 // Caller owns gLifecycleMutex. PollLoop never takes this mutex; gBackend stays alive
@@ -57,7 +139,15 @@ void StopLocked() {
 
 void PollLoop(pico_ot_backend_t* backend) {
     LogInfo("NATIVE PollLoop: started");
-    std::unordered_map<std::string, uint64_t> lastSourceTimestamp;
+    __android_log_print(
+        ANDROID_LOG_INFO, kTag,
+        "POLL_CONFIG targetPollHz=%u poseLogHz=%u periodNs=%" PRId64,
+        kPollHz,
+        kPoseLogHz,
+        static_cast<int64_t>(kPollPeriod.count()));
+
+    std::unordered_map<std::string, CadenceStats> cadence;
+    std::unordered_map<std::string, int> lastPositionValid;
     uint64_t loop = 0;
 
     while (gRun.load()) {
@@ -81,36 +171,49 @@ void PollLoop(pico_ot_backend_t* backend) {
             }
 
             const std::string serial(dev.serial);
-            const auto it = lastSourceTimestamp.find(serial);
-            const uint64_t dtSource = (it == lastSourceTimestamp.end() || pose.source_timestamp < it->second)
-                ? 0 : pose.source_timestamp - it->second;
-            lastSourceTimestamp[serial] = pose.source_timestamp;
+            auto& stats = cadence[serial];
+            const uint64_t dtSource = ObserveCadence(stats, pose.source_timestamp);
 
-            __android_log_print(
-                ANDROID_LOG_INFO, kTag,
-                "POSE loop=%" PRIu64 " sn=%s id=%d conn=%u posValid=%u ori=%u state65=%u "
-                "src=%" PRIu64 " dSrc=%" PRIu64 " obs=%" PRId64 " mapped=%" PRId64 " mappedValid=%u "
-                "p=(%.5f,%.5f,%.5f) q=(%.7f,%.7f,%.7f,%.7f) "
-                "v=(%.5f,%.5f,%.5f) w=(%.5f,%.5f,%.5f)",
-                loop,
-                pose.serial,
-                pose.runtime_device_id,
-                pose.connected_snapshot,
-                pose.position_valid,
-                pose.orientation_sample_present,
-                pose.raw_tracking_state_65,
-                pose.source_timestamp,
-                dtSource,
-                pose.observed_monotonic_ns,
-                pose.mapped_monotonic_ns,
-                pose.mapped_monotonic_valid,
-                pose.position_m[0], pose.position_m[1], pose.position_m[2],
-                pose.orientation_xyzw[0], pose.orientation_xyzw[1], pose.orientation_xyzw[2], pose.orientation_xyzw[3],
-                pose.linear_velocity_mps[0], pose.linear_velocity_mps[1], pose.linear_velocity_mps[2],
-                pose.angular_velocity_radps[0], pose.angular_velocity_radps[1], pose.angular_velocity_radps[2]);
+            const int currentPositionValid = pose.position_valid ? 1 : 0;
+            const auto validIt = lastPositionValid.find(serial);
+            const bool validityChanged = validIt == lastPositionValid.end() || validIt->second != currentPositionValid;
+            lastPositionValid[serial] = currentPositionValid;
+
+            const bool periodicPoseLog = (loop % kPoseLogEveryLoops) == 0;
+            if (periodicPoseLog || validityChanged) {
+                __android_log_print(
+                    ANDROID_LOG_INFO, kTag,
+                    "POSE loop=%" PRIu64 " sn=%s id=%d conn=%u posValid=%u ori=%u state65=%u "
+                    "src=%" PRIu64 " dSrc=%" PRIu64 " obs=%" PRId64 " mapped=%" PRId64 " mappedValid=%u "
+                    "p=(%.5f,%.5f,%.5f) q=(%.7f,%.7f,%.7f,%.7f) "
+                    "v=(%.5f,%.5f,%.5f) w=(%.5f,%.5f,%.5f)",
+                    loop,
+                    pose.serial,
+                    pose.runtime_device_id,
+                    pose.connected_snapshot,
+                    pose.position_valid,
+                    pose.orientation_sample_present,
+                    pose.raw_tracking_state_65,
+                    pose.source_timestamp,
+                    dtSource,
+                    pose.observed_monotonic_ns,
+                    pose.mapped_monotonic_ns,
+                    pose.mapped_monotonic_valid,
+                    pose.position_m[0], pose.position_m[1], pose.position_m[2],
+                    pose.orientation_xyzw[0], pose.orientation_xyzw[1], pose.orientation_xyzw[2], pose.orientation_xyzw[3],
+                    pose.linear_velocity_mps[0], pose.linear_velocity_mps[1], pose.linear_velocity_mps[2],
+                    pose.angular_velocity_radps[0], pose.angular_velocity_radps[1], pose.angular_velocity_radps[2]);
+            }
         }
 
         ++loop;
+        if ((loop % kPollHz) == 0) {
+            for (auto& entry : cadence) {
+                LogCadenceWindow(entry.first, entry.second);
+                ResetCadenceWindow(entry.second);
+            }
+        }
+
         std::this_thread::sleep_until(deadline);
     }
     LogInfo("NATIVE PollLoop: exiting");
@@ -132,17 +235,18 @@ std::string StartBackend() {
 
     pico_ot_config_t cfg{};
     pico_ot_default_config(&cfg);
-    // Initial device validation only. After obtaining the actual GNU Build ID,
-    // pin expected_library_build_id_hex and turn this override off.
-    cfg.allow_unverified_runtime = 1;
+    cfg.expected_library_build_id_hex = kExpectedBuildId;
+    cfg.allow_unverified_runtime = 0;
     cfg.allow_repeated_leaky_enumeration = 0;
 
     __android_log_print(
         ANDROID_LOG_INFO, kTag,
-        "NATIVE StartBackend: calling pico_ot_start offset=0x%" PRIxPTR " algoSize=%zu allowUnverified=%u",
+        "NATIVE StartBackend: calling pico_ot_start offset=0x%" PRIxPTR
+        " algoSize=%zu allowUnverified=%u expectedBuildId=%s",
         cfg.get_body_tracker_data_offset,
         cfg.algo_result_size,
-        cfg.allow_unverified_runtime);
+        cfg.allow_unverified_runtime,
+        cfg.expected_library_build_id_hex);
 
     const auto rc = pico_ot_start(gBackend, &cfg);
     __android_log_print(ANDROID_LOG_INFO, kTag, "NATIVE StartBackend: pico_ot_start returned rc=%d", static_cast<int>(rc));
@@ -193,6 +297,8 @@ std::string StartBackend() {
     std::ostringstream out;
     out << "Backend started\nTrackers: " << count
         << "\nBuild ID: " << diag.library_build_id_hex
+        << "\nVerified: " << static_cast<unsigned>(diag.runtime_identity_verified)
+        << "\nPoll: " << kPollHz << " Hz"
         << "\nLogcat: PicoOTTest";
     LogInfo("NATIVE StartBackend: complete");
     return out.str();
