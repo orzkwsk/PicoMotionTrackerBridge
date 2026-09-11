@@ -1,0 +1,7 @@
+{
+  "alwaysActivate": true,
+  "name": "pico_ot_bridge",
+  "directory": "",
+  "resourceOnly": false,
+  "hmd_presence": []
+}
