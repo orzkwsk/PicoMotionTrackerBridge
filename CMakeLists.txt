@@ -79,8 +79,11 @@ else()
     target_compile_options(pico_ot_bridge_transport PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# HMD publisher is the only bridge target that consumes normalized Backend
-# types. This keeps the Windows SteamVR driver independent of pico_ot_backend.
+# HMD publisher consumes only the normalized Backend *types* declared in public
+# headers. It must not link against the Backend binary itself. The Android app
+# that owns both components links PicoOT::Backend and PicoOT::BridgePublisher
+# independently. This keeps host-side bridge tests free of the private runtime
+# DLL/import-library contract.
 add_library(pico_ot_bridge_publisher STATIC
     src/bridge/publisher.cpp)
 add_library(PicoOT::BridgePublisher ALIAS pico_ot_bridge_publisher)
@@ -88,7 +91,7 @@ target_compile_features(pico_ot_bridge_publisher PUBLIC cxx_std_17)
 target_include_directories(pico_ot_bridge_publisher
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(pico_ot_bridge_publisher
-    PUBLIC PicoOT::BridgeTransport PicoOT::Backend)
+    PUBLIC PicoOT::BridgeTransport)
 
 if(MSVC)
     target_compile_options(pico_ot_bridge_publisher PRIVATE /W4 /permissive-)
