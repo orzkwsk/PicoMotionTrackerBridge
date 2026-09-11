@@ -17,13 +17,6 @@ android {
         ndk {
             abiFilters 'arm64-v8a'
         }
-
-        externalNativeBuild {
-            cmake {
-                cppFlags '-std=c++17'
-                arguments '-DPICO_OT_BUILD_TESTS=OFF', '-DPICO_OT_BUILD_SHARED=ON'
-            }
-        }
     }
 
     buildTypes {
@@ -36,10 +29,9 @@ android {
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path file('src/main/cpp/CMakeLists.txt')
-            version '3.22.1'
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
         }
     }
 

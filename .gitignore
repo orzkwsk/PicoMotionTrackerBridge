@@ -1,5 +1,12 @@
 build/
+build-android/
 .idea/
 .vscode/
 *.iml
 .DS_Store
+
+BackendTestApp/.gradle/
+BackendTestApp/local.properties
+BackendTestApp/native-build/
+BackendTestApp/app/build/
+BackendTestApp/app/src/main/jniLibs/
