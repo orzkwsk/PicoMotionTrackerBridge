@@ -11,7 +11,7 @@ namespace pico_ot::bridge {
 constexpr uint32_t kWireMagic = 0x42544F50u;  // "POTB" when encoded little-endian.
 constexpr uint16_t kWireVersion = 1;
 constexpr size_t kWireSerialCapacity = 32;
-constexpr size_t kWireHeaderSize = 16;
+constexpr size_t kWireHeaderSize = 24;
 
 enum class WireMessageType : uint16_t {
     Pose = 1,
@@ -87,7 +87,7 @@ struct TimeSyncRequestPacket {
 
 struct TimeSyncResponsePacket {
     uint64_t nonce = 0;
-    int64_t clientSendMonotonicNs = 0;   // t0, echoed PC clock.
+    int64_t clientSendMonotonicNs = 0;    // t0, echoed PC clock.
     int64_t serverReceiveMonotonicNs = 0; // t1, HMD clock.
     int64_t serverSendMonotonicNs = 0;    // t2, HMD clock.
 };
@@ -98,20 +98,28 @@ using PacketPayload = std::variant<PosePacket,
                                    TimeSyncResponsePacket>;
 
 struct DecodedPacket {
+    // Random/non-repeating value generated when the HMD sender starts. A
+    // change tells the PC receiver that packet sequence numbers and topology
+    // belong to a new sender lifetime.
+    uint64_t senderSessionId = 0;
     uint32_t sequence = 0;
     PacketPayload payload;
 };
 
-[[nodiscard]] bool EncodePosePacket(uint32_t sequence,
+[[nodiscard]] bool EncodePosePacket(uint64_t senderSessionId,
+                                    uint32_t sequence,
                                     const PosePacket& packet,
                                     std::vector<uint8_t>& out);
-[[nodiscard]] bool EncodeDeviceStatePacket(uint32_t sequence,
+[[nodiscard]] bool EncodeDeviceStatePacket(uint64_t senderSessionId,
+                                           uint32_t sequence,
                                            const DeviceStatePacket& packet,
                                            std::vector<uint8_t>& out);
-[[nodiscard]] bool EncodeTimeSyncRequestPacket(uint32_t sequence,
+[[nodiscard]] bool EncodeTimeSyncRequestPacket(uint64_t senderSessionId,
+                                               uint32_t sequence,
                                                const TimeSyncRequestPacket& packet,
                                                std::vector<uint8_t>& out);
-[[nodiscard]] bool EncodeTimeSyncResponsePacket(uint32_t sequence,
+[[nodiscard]] bool EncodeTimeSyncResponsePacket(uint64_t senderSessionId,
+                                                uint32_t sequence,
                                                 const TimeSyncResponsePacket& packet,
                                                 std::vector<uint8_t>& out);
 
