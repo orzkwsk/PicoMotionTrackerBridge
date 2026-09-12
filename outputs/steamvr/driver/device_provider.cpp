@@ -3,9 +3,25 @@
 #include "driver_log.hpp"
 #include "pico_ot_bridge/monotonic_clock.hpp"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
+
 #include <utility>
 
 namespace pico_ot::steamvr {
+namespace {
+
+constexpr wchar_t kOrientationZeroEventName[] =
+    L"Local\\PicoOTBridge_OrientationZero";
+constexpr wchar_t kOrientationClearEventName[] =
+    L"Local\\PicoOTBridge_OrientationClear";
+
+}  // namespace
 
 vr::EVRInitError DeviceProvider::Init(vr::IVRDriverContext* driverContext) {
     VR_INIT_SERVER_DRIVER_CONTEXT(driverContext);
@@ -21,12 +37,37 @@ vr::EVRInitError DeviceProvider::Init(vr::IVRDriverContext* driverContext) {
         return vr::VRInitError_Driver_Unknown;
     }
 
+    orientationZeroEvent_ = CreateEventW(
+        nullptr, FALSE, FALSE, kOrientationZeroEventName);
+    if (orientationZeroEvent_ == nullptr) {
+        DriverLog("pico_ot_bridge: failed to create orientation-zero event: %lu",
+                  static_cast<unsigned long>(GetLastError()));
+    }
+
+    orientationClearEvent_ = CreateEventW(
+        nullptr, FALSE, FALSE, kOrientationClearEventName);
+    if (orientationClearEvent_ == nullptr) {
+        DriverLog("pico_ot_bridge: failed to create orientation-clear event: %lu",
+                  static_cast<unsigned long>(GetLastError()));
+    }
+
     DriverLog("pico_ot_bridge: SteamVR provider listening on UDP %u",
               receiver_.ListenPort());
+    DriverLog("pico_ot_bridge: orientation diagnostics ready (Zero/Clear named events)");
     return vr::VRInitError_None;
 }
 
 void DeviceProvider::Cleanup() {
+    if (orientationZeroEvent_ != nullptr) {
+        CloseHandle(static_cast<HANDLE>(orientationZeroEvent_));
+        orientationZeroEvent_ = nullptr;
+    }
+    if (orientationClearEvent_ != nullptr) {
+        CloseHandle(static_cast<HANDLE>(orientationClearEvent_));
+        orientationClearEvent_ = nullptr;
+    }
+
+    diagnosticOrientationZeroEnabled_ = false;
     devices_.clear();
     receiver_.Stop();
     VR_CLEANUP_SERVER_DRIVER_CONTEXT();
@@ -63,9 +104,35 @@ void DeviceProvider::AddNewTrackers() {
             continue;
         }
 
+        if (diagnosticOrientationZeroEnabled_) {
+            rawDevice->RequestOrientationZero();
+        }
+
         devices_.emplace(serial, std::move(device));
         DriverLog("pico_ot_bridge: registered Generic Tracker %s",
                   serial.c_str());
+    }
+}
+
+void DeviceProvider::ProcessDiagnosticControls() {
+    if (orientationZeroEvent_ != nullptr &&
+        WaitForSingleObject(static_cast<HANDLE>(orientationZeroEvent_), 0) ==
+            WAIT_OBJECT_0) {
+        diagnosticOrientationZeroEnabled_ = true;
+        for (auto& entry : devices_) {
+            entry.second->RequestOrientationZero();
+        }
+        DriverLog("pico_ot_bridge: diagnostic orientation zero requested for all trackers");
+    }
+
+    if (orientationClearEvent_ != nullptr &&
+        WaitForSingleObject(static_cast<HANDLE>(orientationClearEvent_), 0) ==
+            WAIT_OBJECT_0) {
+        diagnosticOrientationZeroEnabled_ = false;
+        for (auto& entry : devices_) {
+            entry.second->ClearOrientationZero();
+        }
+        DriverLog("pico_ot_bridge: diagnostic orientation zero cleared for all trackers");
     }
 }
 
@@ -90,6 +157,7 @@ void DeviceProvider::RunFrame() {
     }
 
     AddNewTrackers();
+    ProcessDiagnosticControls();
     UpdateTrackers(pico_ot::bridge::MonotonicNowNs());
 
     // Drain runtime events so they do not accumulate even though the initial
