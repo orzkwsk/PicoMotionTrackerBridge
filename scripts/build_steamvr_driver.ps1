@@ -47,6 +47,22 @@ if (-not (Test-Path $DriverDll)) {
     throw "Driver DLL was not produced at expected path: $DriverDll"
 }
 
+$RenderModelScript = Join-Path $PSScriptRoot "generate_steamvr_rendermodel.ps1"
+if (-not (Test-Path $RenderModelScript)) {
+    throw "Render model generator was not found: $RenderModelScript"
+}
+& $RenderModelScript -DriverPackageDir $PackageDir
+if ($LASTEXITCODE -ne 0) { throw "SteamVR render model generation failed." }
+
+$RenderModelObj = Join-Path $PackageDir "rendermodels\pico_motion_tracker\pico_motion_tracker.obj"
+$RenderModelMtl = Join-Path $PackageDir "rendermodels\pico_motion_tracker\pico_motion_tracker.mtl"
+$RenderModelPng = Join-Path $PackageDir "rendermodels\pico_motion_tracker\pico_motion_tracker.png"
+foreach ($RenderAsset in @($RenderModelObj, $RenderModelMtl, $RenderModelPng)) {
+    if (-not (Test-Path $RenderAsset)) {
+        throw "SteamVR render model asset was not produced: $RenderAsset"
+    }
+}
+
 $ReceiverCli = Get-ChildItem -Path $BuildDir -Filter "pico_ot_bridge_receiver_cli.exe" -Recurse |
     Select-Object -First 1 -ExpandProperty FullName
 $Calibrator = Get-ChildItem -Path $BuildDir -Filter "pico_ot_steamvr_calibrator.exe" -Recurse |
@@ -55,6 +71,7 @@ $Calibrator = Get-ChildItem -Path $BuildDir -Filter "pico_ot_steamvr_calibrator.
 Write-Host ""
 Write-Host "SteamVR driver package: $PackageDir"
 Write-Host "Driver DLL: $DriverDll"
+Write-Host "Render model: $RenderModelObj"
 if ($ReceiverCli) {
     Write-Host "Receiver CLI: $ReceiverCli"
 }
