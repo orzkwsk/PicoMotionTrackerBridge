@@ -81,6 +81,10 @@ vr::EVRInitError TrackerDevice::Activate(uint32_t objectId) {
     vr::VRProperties()->SetStringProperty(
         container, vr::Prop_ModelNumber_String, "PICO Motion Tracker Bridge");
     vr::VRProperties()->SetStringProperty(
+        container,
+        vr::Prop_RenderModelName_String,
+        "{pico_ot_bridge}/rendermodels/pico_motion_tracker");
+    vr::VRProperties()->SetStringProperty(
         container, vr::Prop_ManufacturerName_String, "PICO");
     vr::VRProperties()->SetStringProperty(
         container, vr::Prop_TrackingSystemName_String, "pico_ot_bridge");
