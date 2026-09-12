@@ -41,8 +41,6 @@ namespace PicoOTBridge
             private const uint AlignmentMagic = 0x504F5441u;
             private const uint AlignmentVersion = 1u;
             private const int AlignmentStateSize = 40;
-            private const double FineIncrementMeters = 0.001;
-            private const double CoarseIncrementMeters = 0.010;
 
             private readonly string repoRoot;
             private readonly string configDirectory;
@@ -51,8 +49,8 @@ namespace PicoOTBridge
             private TextBox xBox;
             private TextBox yBox;
             private TextBox zBox;
-            private TextBox serialBox;
-            private ComboBox controllerCombo;
+            private ComboBox trackerCombo;
+            private ComboBox referenceCombo;
             private TextBox statusBox;
 
             public ControlForm(string repoRoot)
@@ -64,7 +62,7 @@ namespace PicoOTBridge
                 configPath = Path.Combine(configDirectory, "steamvr_alignment.json");
 
                 Text = "PICO OT SteamVR Control";
-                ClientSize = new Size(720, 500);
+                ClientSize = new Size(650, 535);
                 StartPosition = FormStartPosition.CenterScreen;
                 FormBorderStyle = FormBorderStyle.FixedDialog;
                 MaximizeBox = false;
@@ -72,77 +70,86 @@ namespace PicoOTBridge
 
                 BuildUi();
                 LoadSavedValuesOnStartup();
+                TryRefreshTrackersOnStartup();
             }
 
             private void BuildUi()
             {
-                AddLabel("World translation (m)", 20, 18, 180);
-                AddLabel("Increment: 1 mm  (Shift + click = 10 mm)", 230, 18, 280);
+                AddLabel("World translation (m)", 20, 18, 220);
+                AddLabel("Increment: 1 mm   (Shift + click = 10 mm)", 260, 18, 300);
 
-                AddLabel("X", 25, 52, 25);
-                AddLabel("Y", 25, 82, 25);
-                AddLabel("Z", 25, 112, 25);
-                xBox = AddTextBox(55, 49, 135);
-                yBox = AddTextBox(55, 79, 135);
-                zBox = AddTextBox(55, 109, 135);
-                AddLabel("m", 198, 52, 20);
-                AddLabel("m", 198, 82, 20);
-                AddLabel("m", 198, 112, 20);
+                AddLabel("X", 25, 54, 25);
+                AddLabel("Y", 25, 88, 25);
+                AddLabel("Z", 25, 122, 25);
+                xBox = AddTextBox(55, 51, 145);
+                yBox = AddTextBox(55, 85, 145);
+                zBox = AddTextBox(55, 119, 145);
+                AddLabel("m", 207, 54, 20);
+                AddLabel("m", 207, 88, 20);
+                AddLabel("m", 207, 122, 20);
 
-                var xMinusButton = AddButton("-1 mm", 230, 46, 75);
-                var xPlusButton = AddButton("+1 mm", 312, 46, 75);
-                var yMinusButton = AddButton("-1 mm", 230, 76, 75);
-                var yPlusButton = AddButton("+1 mm", 312, 76, 75);
-                var zMinusButton = AddButton("-1 mm", 230, 106, 75);
-                var zPlusButton = AddButton("+1 mm", 312, 106, 75);
+                var xMinusButton = AddButton("-1 mm", 240, 48, 80);
+                var xPlusButton = AddButton("+1 mm", 326, 48, 80);
+                var yMinusButton = AddButton("-1 mm", 240, 82, 80);
+                var yPlusButton = AddButton("+1 mm", 326, 82, 80);
+                var zMinusButton = AddButton("-1 mm", 240, 116, 80);
+                var zPlusButton = AddButton("+1 mm", 326, 116, 80);
 
-                var readButton = AddButton("Read current", 415, 46, 95);
-                var applyButton = AddButton("Apply", 518, 46, 80);
-                var resetButton = AddButton("Reset", 606, 46, 80);
-                var saveButton = AddButton("Save", 415, 86, 95);
-                var loadApplyButton = AddButton("Load + Apply", 518, 86, 168);
+                var readButton = AddButton("Read current", 425, 48, 100);
+                var applyButton = AddButton("Apply", 535, 48, 90);
+                var resetButton = AddButton("Reset", 425, 84, 95);
+                var saveButton = AddButton("Save", 530, 84, 95);
+                var loadApplyButton = AddButton("Load + Apply", 425, 120, 200);
 
-                AddLabel("Calibration", 20, 165, 120);
-                AddLabel("Tracker serial", 25, 199, 90);
-                serialBox = AddTextBox(120, 196, 300);
-                AddLabel("Controller", 25, 231, 90);
-                controllerCombo = new ComboBox();
-                controllerCombo.Location = new Point(120, 228);
-                controllerCombo.Size = new Size(120, 23);
-                controllerCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-                controllerCombo.Items.Add("Right");
-                controllerCombo.Items.Add("Left");
-                controllerCombo.SelectedIndex = 0;
-                Controls.Add(controllerCombo);
-                var calibrateButton = AddButton("Align to Controller", 260, 224, 160);
+                AddLabel("Calibration", 20, 174, 120);
+                AddLabel("PICO tracker", 25, 207, 90);
+                trackerCombo = new ComboBox();
+                trackerCombo.Location = new Point(120, 204);
+                trackerCombo.Size = new Size(310, 23);
+                trackerCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+                Controls.Add(trackerCombo);
+                var refreshTrackersButton = AddButton("Refresh", 440, 201, 85);
 
-                AddLabel("Diagnostics", 20, 280, 120);
-                var orientationZeroButton = AddButton("Orientation Zero", 25, 312, 140);
-                var orientationClearButton = AddButton("Orientation Clear", 175, 312, 140);
-                var positionZeroButton = AddButton("Position Zero", 325, 312, 140);
-                var positionClearButton = AddButton("Position Clear", 475, 312, 140);
+                AddLabel("Reference", 25, 241, 90);
+                referenceCombo = new ComboBox();
+                referenceCombo.Location = new Point(120, 238);
+                referenceCombo.Size = new Size(205, 23);
+                referenceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+                referenceCombo.Items.Add("Right Controller");
+                referenceCombo.Items.Add("Left Controller");
+                referenceCombo.Items.Add("HMD (optional)");
+                referenceCombo.SelectedIndex = 0;
+                Controls.Add(referenceCombo);
+                var calibrateButton = AddButton("Align to Reference", 340, 234, 185);
 
-                AddLabel("Status", 20, 360, 100);
+                AddLabel("Diagnostics", 20, 296, 120);
+                var orientationZeroButton = AddButton("Orientation Zero", 25, 328, 135);
+                var orientationClearButton = AddButton("Orientation Clear", 170, 328, 135);
+                var positionZeroButton = AddButton("Position Zero", 315, 328, 135);
+                var positionClearButton = AddButton("Position Clear", 460, 328, 135);
+
+                AddLabel("Status", 20, 380, 100);
                 statusBox = new TextBox();
-                statusBox.Location = new Point(20, 385);
-                statusBox.Size = new Size(680, 90);
+                statusBox.Location = new Point(20, 405);
+                statusBox.Size = new Size(605, 100);
                 statusBox.Multiline = true;
                 statusBox.ReadOnly = true;
                 statusBox.ScrollBars = ScrollBars.Vertical;
                 Controls.Add(statusBox);
 
-                xMinusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(xBox, "X", -1.0); }); };
-                xPlusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(xBox, "X", +1.0); }); };
-                yMinusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(yBox, "Y", -1.0); }); };
-                yPlusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(yBox, "Y", +1.0); }); };
-                zMinusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(zBox, "Z", -1.0); }); };
-                zPlusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(zBox, "Z", +1.0); }); };
+                xMinusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(xBox, "X", -1); }); };
+                xPlusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(xBox, "X", 1); }); };
+                yMinusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(yBox, "Y", -1); }); };
+                yPlusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(yBox, "Y", 1); }); };
+                zMinusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(zBox, "Z", -1); }); };
+                zPlusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(zBox, "Z", 1); }); };
 
                 readButton.Click += delegate { RunUiAction("Read failed", ReadCurrent); };
                 applyButton.Click += delegate { RunUiAction("Apply failed", ApplyFields); };
                 resetButton.Click += delegate { RunUiAction("Reset failed", ResetTranslation); };
                 saveButton.Click += delegate { RunUiAction("Save failed", SaveFields); };
                 loadApplyButton.Click += delegate { RunUiAction("Load failed", LoadAndApply); };
+                refreshTrackersButton.Click += delegate { RunUiAction("Tracker refresh failed", RefreshTrackers); };
                 calibrateButton.Click += delegate { RunUiAction("Calibration failed", Calibrate); };
                 orientationZeroButton.Click += delegate { RunUiAction("Control failed", delegate { SendControlEvent(OrientationZeroEventName); SetStatus("Orientation Zero requested."); }); };
                 orientationClearButton.Click += delegate { RunUiAction("Control failed", delegate { SendControlEvent(OrientationClearEventName); SetStatus("Orientation Zero cleared."); }); };
@@ -205,22 +212,6 @@ namespace PicoOTBridge
                     throw new InvalidOperationException(name + " must be a number using '.' as the decimal separator.");
                 }
                 return value;
-            }
-
-            private void NudgeAxis(TextBox axisBox, string axisName, double direction)
-            {
-                double step = (ModifierKeys & Keys.Shift) == Keys.Shift
-                    ? CoarseIncrementMeters
-                    : FineIncrementMeters;
-                double current = ParseNumber(axisBox.Text, axisName);
-                double next = current + (direction * step);
-                axisBox.Text = FormatNumber(next);
-                ApplyFields();
-
-                int stepMillimeters = (int)Math.Round(step * 1000.0);
-                string sign = direction > 0.0 ? "+" : "-";
-                SetStatus(axisName + " adjusted " + sign + stepMillimeters.ToString(CultureInfo.InvariantCulture) +
-                    " mm and applied. Current " + axisName + "=" + FormatNumber(next) + " m");
             }
 
             private AlignmentState ReadAlignmentState()
@@ -310,6 +301,14 @@ namespace PicoOTBridge
                 }
             }
 
+            private void NudgeAxis(TextBox box, string axisName, int direction)
+            {
+                double stepMeters = (ModifierKeys & Keys.Shift) == Keys.Shift ? 0.010 : 0.001;
+                double current = ParseNumber(box.Text, axisName);
+                box.Text = FormatNumber(current + direction * stepMeters);
+                ApplyFields();
+            }
+
             private void ReadCurrent()
             {
                 AlignmentState state = ReadAlignmentState();
@@ -354,57 +353,6 @@ namespace PicoOTBridge
                 SetStatus("Loaded and applied saved translation from " + configPath);
             }
 
-            private void Calibrate()
-            {
-                string serial = serialBox.Text.Trim();
-                if (serial.Length == 0)
-                {
-                    throw new InvalidOperationException("Enter the PICO tracker serial to use as the calibration reference.");
-                }
-
-                string calibrator = FindCalibrator();
-                if (calibrator == null)
-                {
-                    throw new InvalidOperationException("pico_ot_steamvr_calibrator.exe was not found. Run scripts\\build_steamvr_driver.ps1 first.");
-                }
-
-                SendControlEvent(PositionClearEventName);
-                Thread.Sleep(100);
-
-                string role = controllerCombo.SelectedItem.ToString().ToLowerInvariant();
-                var psi = new ProcessStartInfo();
-                psi.FileName = calibrator;
-                psi.Arguments = "--tracker \"" + serial.Replace("\"", "") + "\" --controller " + role;
-                psi.UseShellExecute = false;
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.CreateNoWindow = true;
-
-                SetStatus("Aligning... keep the tracker and controller reference points together and still.");
-                Refresh();
-
-                string stdout;
-                string stderr;
-                int exitCode;
-                using (var process = Process.Start(psi))
-                {
-                    stdout = process.StandardOutput.ReadToEnd();
-                    stderr = process.StandardError.ReadToEnd();
-                    process.WaitForExit();
-                    exitCode = process.ExitCode;
-                }
-
-                if (exitCode != 0)
-                {
-                    throw new InvalidOperationException("Calibration failed (exit " + exitCode.ToString(CultureInfo.InvariantCulture) + ").\r\n" + stdout + "\r\n" + stderr);
-                }
-
-                AlignmentState state = ReadAlignmentState();
-                PutStateInFields(state);
-                SaveAlignmentConfig(state.X, state.Y, state.Z);
-                SetStatus(stdout.Trim() + "\r\nSaved resulting translation.");
-            }
-
             private string FindCalibrator()
             {
                 string buildRoot = Path.Combine(repoRoot, "build-steamvr");
@@ -414,6 +362,123 @@ namespace PicoOTBridge
                 }
                 string[] files = Directory.GetFiles(buildRoot, "pico_ot_steamvr_calibrator.exe", SearchOption.AllDirectories);
                 return files.Length > 0 ? files[0] : null;
+            }
+
+            private string RunCalibrator(string arguments, out string stderr, out int exitCode)
+            {
+                string calibrator = FindCalibrator();
+                if (calibrator == null)
+                {
+                    throw new InvalidOperationException("pico_ot_steamvr_calibrator.exe was not found. Run scripts\\build_steamvr_driver.ps1 first.");
+                }
+
+                var psi = new ProcessStartInfo();
+                psi.FileName = calibrator;
+                psi.Arguments = arguments;
+                psi.UseShellExecute = false;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.CreateNoWindow = true;
+
+                string stdout;
+                using (var process = Process.Start(psi))
+                {
+                    stdout = process.StandardOutput.ReadToEnd();
+                    stderr = process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+                    exitCode = process.ExitCode;
+                }
+                return stdout;
+            }
+
+            private void TryRefreshTrackersOnStartup()
+            {
+                try
+                {
+                    RefreshTrackers();
+                }
+                catch (Exception ex)
+                {
+                    SetStatus("Tracker list not available yet: " + ex.Message);
+                }
+            }
+
+            private void RefreshTrackers()
+            {
+                string previous = trackerCombo.SelectedItem as string;
+                string stderr;
+                int exitCode;
+                string stdout = RunCalibrator("--list-trackers", out stderr, out exitCode);
+                if (exitCode != 0)
+                {
+                    throw new InvalidOperationException("Tracker enumeration failed (exit " + exitCode.ToString(CultureInfo.InvariantCulture) + ").\r\n" + stdout + "\r\n" + stderr);
+                }
+
+                trackerCombo.Items.Clear();
+                string[] lines = stdout.Replace("\r", "").Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < lines.Length; ++i)
+                {
+                    string serial = lines[i].Trim();
+                    if (serial.Length > 0)
+                    {
+                        trackerCombo.Items.Add(serial);
+                    }
+                }
+
+                if (trackerCombo.Items.Count == 0)
+                {
+                    SetStatus("No PICO bridge trackers were found in SteamVR.");
+                    return;
+                }
+
+                int previousIndex = previous == null ? -1 : trackerCombo.Items.IndexOf(previous);
+                trackerCombo.SelectedIndex = previousIndex >= 0 ? previousIndex : 0;
+                SetStatus("Found " + trackerCombo.Items.Count.ToString(CultureInfo.InvariantCulture) + " PICO bridge tracker(s).");
+            }
+
+            private string SelectedReferenceArgument()
+            {
+                if (referenceCombo.SelectedIndex == 1)
+                {
+                    return "left";
+                }
+                if (referenceCombo.SelectedIndex == 2)
+                {
+                    return "hmd";
+                }
+                return "right";
+            }
+
+            private void Calibrate()
+            {
+                string serial = trackerCombo.SelectedItem as string;
+                if (string.IsNullOrWhiteSpace(serial))
+                {
+                    throw new InvalidOperationException("Select a PICO tracker. Use Refresh if the list is empty.");
+                }
+
+                SendControlEvent(PositionClearEventName);
+                Thread.Sleep(100);
+
+                string reference = SelectedReferenceArgument();
+                SetStatus("Calibrating against " + referenceCombo.SelectedItem + "... keep both reference points together and still.");
+                Refresh();
+
+                string stderr;
+                int exitCode;
+                string stdout = RunCalibrator(
+                    "--tracker \"" + serial.Replace("\"", "") + "\" --reference " + reference,
+                    out stderr,
+                    out exitCode);
+                if (exitCode != 0)
+                {
+                    throw new InvalidOperationException("Calibration failed (exit " + exitCode.ToString(CultureInfo.InvariantCulture) + ").\r\n" + stdout + "\r\n" + stderr);
+                }
+
+                AlignmentState state = ReadAlignmentState();
+                PutStateInFields(state);
+                SaveAlignmentConfig(state.X, state.Y, state.Z);
+                SetStatus(stdout.Trim() + "\r\nSaved resulting translation.");
             }
 
             private void PutStateInFields(AlignmentState state)
