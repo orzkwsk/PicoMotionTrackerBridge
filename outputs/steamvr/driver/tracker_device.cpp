@@ -10,6 +10,11 @@
 namespace pico_ot::steamvr {
 namespace {
 
+constexpr char kVisibleRenderModelName[] =
+    "{pico_ot_bridge}/rendermodels/pico_motion_tracker";
+constexpr char kHiddenRenderModelName[] =
+    "{pico_ot_bridge}/rendermodels/pico_motion_tracker_hidden";
+
 vr::HmdQuaternion_t IdentityQuaternion() {
     vr::HmdQuaternion_t q{};
     q.w = 1.0;
@@ -144,6 +149,8 @@ vr::EVRInitError TrackerDevice::Activate(uint32_t objectId) {
     vr::VRProperties()->SetBoolProperty(
         container, vr::Prop_DeviceProvidesBatteryStatus_Bool, false);
 
+    ApplyRenderModelProperty();
+
     DriverLog("pico_ot_bridge: activated tracker %s as device %u",
               serial_.c_str(), objectId_);
     return vr::VRInitError_None;
@@ -220,6 +227,33 @@ void TrackerDevice::SetWorldTranslation(double xMeters,
     worldTranslationMeters_[0] = xMeters;
     worldTranslationMeters_[1] = yMeters;
     worldTranslationMeters_[2] = zMeters;
+}
+
+void TrackerDevice::SetRenderModelVisible(bool visible) {
+    if (renderModelVisible_ == visible) {
+        return;
+    }
+    renderModelVisible_ = visible;
+    ApplyRenderModelProperty();
+}
+
+void TrackerDevice::ApplyRenderModelProperty() {
+    if (objectId_ == vr::k_unTrackedDeviceIndexInvalid) {
+        return;
+    }
+
+    const vr::PropertyContainerHandle_t container =
+        vr::VRProperties()->TrackedDeviceToPropertyContainer(objectId_);
+    const char* modelName = renderModelVisible_
+                                ? kVisibleRenderModelName
+                                : kHiddenRenderModelName;
+    vr::VRProperties()->SetStringProperty(
+        container, vr::Prop_RenderModelName_String, modelName);
+
+    DriverLog("pico_ot_bridge: render model %s for %s -> %s",
+              renderModelVisible_ ? "shown" : "hidden",
+              serial_.c_str(),
+              modelName);
 }
 
 vr::DriverPose_t TrackerDevice::DisconnectedPose() {
