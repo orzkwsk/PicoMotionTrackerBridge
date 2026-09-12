@@ -149,6 +149,14 @@ void TrackerDevice::ClearPositionZero() {
               serial_.c_str());
 }
 
+void TrackerDevice::SetWorldTranslation(double xMeters,
+                                        double yMeters,
+                                        double zMeters) noexcept {
+    worldTranslationMeters_[0] = xMeters;
+    worldTranslationMeters_[1] = yMeters;
+    worldTranslationMeters_[2] = zMeters;
+}
+
 vr::DriverPose_t TrackerDevice::DisconnectedPose() {
     vr::DriverPose_t pose{};
     pose.qWorldFromDriverRotation = IdentityQuaternion();
@@ -199,12 +207,22 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
                 next.vecPosition[2] =
                     source.positionMeters.z - positionZeroReference_[2];
             } else {
-                // Position bring-up currently indicates matching axis directions
-                // and scale. World-origin alignment remains intentionally separate.
+                // Position direction and scale are hardware-validated. The
+                // remaining calibration is the shared driver->world transform.
                 next.vecPosition[0] = source.positionMeters.x;
                 next.vecPosition[1] = source.positionMeters.y;
                 next.vecPosition[2] = source.positionMeters.z;
             }
+        }
+
+        // Position Zero is a pure relative-motion diagnostic. Suppress the
+        // shared world translation while it is active so its captured point
+        // remains SteamVR origin. Normal output uses one translation shared by
+        // every PICO tracker through OpenVR's driver->world transform.
+        if (!positionZeroActive_) {
+            next.vecWorldFromDriverTranslation[0] = worldTranslationMeters_[0];
+            next.vecWorldFromDriverTranslation[1] = worldTranslationMeters_[1];
+            next.vecWorldFromDriverTranslation[2] = worldTranslationMeters_[2];
         }
 
         if (source.orientationSamplePresent) {
