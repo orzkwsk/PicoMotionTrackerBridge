@@ -34,7 +34,10 @@ private:
     // Windows headers into the public driver header.
     void* orientationZeroEvent_ = nullptr;
     void* orientationClearEvent_ = nullptr;
+    void* positionZeroEvent_ = nullptr;
+    void* positionClearEvent_ = nullptr;
     bool diagnosticOrientationZeroEnabled_ = false;
+    bool diagnosticPositionZeroEnabled_ = false;
 };
 
 }  // namespace pico_ot::steamvr
