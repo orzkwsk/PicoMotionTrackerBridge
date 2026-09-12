@@ -24,6 +24,12 @@ public:
 
     [[nodiscard]] const std::string& Serial() const noexcept { return serial_; }
 
+    // Diagnostic-only orientation zeroing. RequestOrientationZero captures the
+    // next fresh corrected orientation as the reference so the displayed
+    // orientation becomes identity at that instant. Position is unaffected.
+    void RequestOrientationZero();
+    void ClearOrientationZero();
+
     void Update(const pico_ot::bridge::ReceivedTrackerState* state,
                 bool stale,
                 int64_t nowPcMonotonicNs);
@@ -34,6 +40,10 @@ private:
     std::string serial_;
     vr::TrackedDeviceIndex_t objectId_ = vr::k_unTrackedDeviceIndexInvalid;
     vr::DriverPose_t pose_{};
+
+    bool orientationZeroPending_ = false;
+    bool orientationZeroActive_ = false;
+    vr::HmdQuaternion_t orientationZeroReference_{};
 };
 
 }  // namespace pico_ot::steamvr
