@@ -53,18 +53,16 @@ vr::HmdQuaternion_t InverseUnitQuaternion(const vr::HmdQuaternion_t& q) {
 
 vr::HmdQuaternion_t PicoOutputAToOpenVrCandidate(
     const vr::HmdQuaternion_t& pico) {
-    // Experimental signed-axis mapping derived from hardware validation:
-    //   raw+zero yaw:               correct
-    //   physical nose-down pitch -> displayed left roll
-    //   physical left roll       -> displayed nose-down pitch
-    // The previous x=-z, z=-x candidate fixed pitch but inverted roll and used
-    // an improper reflection. Keep the validated pitch mapping while changing
-    // z to +x so the X/Z remap is a proper rotation candidate.
+    // Experimental signed-axis mapping derived from hardware validation.
+    // After the X/Z remap, pitch/yaw axes and directions matched while roll
+    // remained inverted. Keep the validated axis mapping and flip only the
+    // OpenVR roll component. This intentionally remains a diagnostic candidate
+    // until the active/passive/handedness convention is fully characterized.
     vr::HmdQuaternion_t openVr{};
     openVr.w = pico.w;
     openVr.x = -pico.z;
     openVr.y = pico.y;
-    openVr.z = pico.x;
+    openVr.z = -pico.x;
     return openVr;
 }
 
