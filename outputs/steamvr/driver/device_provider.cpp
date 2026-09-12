@@ -20,6 +20,10 @@ constexpr wchar_t kOrientationZeroEventName[] =
     L"Local\\PicoOTBridge_OrientationZero";
 constexpr wchar_t kOrientationClearEventName[] =
     L"Local\\PicoOTBridge_OrientationClear";
+constexpr wchar_t kPositionZeroEventName[] =
+    L"Local\\PicoOTBridge_PositionZero";
+constexpr wchar_t kPositionClearEventName[] =
+    L"Local\\PicoOTBridge_PositionClear";
 
 }  // namespace
 
@@ -51,9 +55,24 @@ vr::EVRInitError DeviceProvider::Init(vr::IVRDriverContext* driverContext) {
                   static_cast<unsigned long>(GetLastError()));
     }
 
+    positionZeroEvent_ = CreateEventW(
+        nullptr, FALSE, FALSE, kPositionZeroEventName);
+    if (positionZeroEvent_ == nullptr) {
+        DriverLog("pico_ot_bridge: failed to create position-zero event: %lu",
+                  static_cast<unsigned long>(GetLastError()));
+    }
+
+    positionClearEvent_ = CreateEventW(
+        nullptr, FALSE, FALSE, kPositionClearEventName);
+    if (positionClearEvent_ == nullptr) {
+        DriverLog("pico_ot_bridge: failed to create position-clear event: %lu",
+                  static_cast<unsigned long>(GetLastError()));
+    }
+
     DriverLog("pico_ot_bridge: SteamVR provider listening on UDP %u",
               receiver_.ListenPort());
     DriverLog("pico_ot_bridge: orientation diagnostics ready (Zero/Clear named events)");
+    DriverLog("pico_ot_bridge: position diagnostics ready (Zero/Clear named events)");
     return vr::VRInitError_None;
 }
 
@@ -66,8 +85,17 @@ void DeviceProvider::Cleanup() {
         CloseHandle(static_cast<HANDLE>(orientationClearEvent_));
         orientationClearEvent_ = nullptr;
     }
+    if (positionZeroEvent_ != nullptr) {
+        CloseHandle(static_cast<HANDLE>(positionZeroEvent_));
+        positionZeroEvent_ = nullptr;
+    }
+    if (positionClearEvent_ != nullptr) {
+        CloseHandle(static_cast<HANDLE>(positionClearEvent_));
+        positionClearEvent_ = nullptr;
+    }
 
     diagnosticOrientationZeroEnabled_ = false;
+    diagnosticPositionZeroEnabled_ = false;
     devices_.clear();
     receiver_.Stop();
     VR_CLEANUP_SERVER_DRIVER_CONTEXT();
@@ -107,6 +135,9 @@ void DeviceProvider::AddNewTrackers() {
         if (diagnosticOrientationZeroEnabled_) {
             rawDevice->RequestOrientationZero();
         }
+        if (diagnosticPositionZeroEnabled_) {
+            rawDevice->RequestPositionZero();
+        }
 
         devices_.emplace(serial, std::move(device));
         DriverLog("pico_ot_bridge: registered Generic Tracker %s",
@@ -133,6 +164,26 @@ void DeviceProvider::ProcessDiagnosticControls() {
             entry.second->ClearOrientationZero();
         }
         DriverLog("pico_ot_bridge: diagnostic orientation zero cleared for all trackers");
+    }
+
+    if (positionZeroEvent_ != nullptr &&
+        WaitForSingleObject(static_cast<HANDLE>(positionZeroEvent_), 0) ==
+            WAIT_OBJECT_0) {
+        diagnosticPositionZeroEnabled_ = true;
+        for (auto& entry : devices_) {
+            entry.second->RequestPositionZero();
+        }
+        DriverLog("pico_ot_bridge: diagnostic position zero requested for all trackers");
+    }
+
+    if (positionClearEvent_ != nullptr &&
+        WaitForSingleObject(static_cast<HANDLE>(positionClearEvent_), 0) ==
+            WAIT_OBJECT_0) {
+        diagnosticPositionZeroEnabled_ = false;
+        for (auto& entry : devices_) {
+            entry.second->ClearPositionZero();
+        }
+        DriverLog("pico_ot_bridge: diagnostic position zero cleared for all trackers");
     }
 }
 
