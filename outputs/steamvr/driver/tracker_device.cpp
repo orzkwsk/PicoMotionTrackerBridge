@@ -51,21 +51,6 @@ vr::HmdQuaternion_t InverseUnitQuaternion(const vr::HmdQuaternion_t& q) {
     return inverse;
 }
 
-vr::HmdQuaternion_t PicoTrackerLocalToOpenVrLocal() {
-    // Measured on hardware with the tracker held in its normal orientation:
-    //   physical right-roll -> raw/OpenVR nose-down pitch
-    //   physical nose-down pitch -> raw/OpenVR left-roll
-    //   yaw direction matches
-    // The current inverse local-basis candidate is a -90 degree rotation about
-    // local +Y. This remains diagnostic until the three signed local axes are
-    // conclusively validated on hardware.
-    constexpr double kSqrtHalf = 0.70710678118654752440;
-    vr::HmdQuaternion_t q{};
-    q.w = kSqrtHalf;
-    q.y = -kSqrtHalf;
-    return q;
-}
-
 }  // namespace
 
 TrackerDevice::TrackerDevice(std::string serial)
@@ -177,12 +162,12 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             picoOrientation.y = source.orientationXyzw.y;
             picoOrientation.z = source.orientationXyzw.z;
 
-            // q_pico maps the PICO tracker-local basis into the world basis.
-            // Post-multiplication changes only the tracker-local/mount basis;
-            // it deliberately does not rotate the world position axes.
-            const vr::HmdQuaternion_t correctedOrientation = NormalizeQuaternion(
-                MultiplyQuaternion(picoOrientation,
-                                   PicoTrackerLocalToOpenVrLocal()));
+            // Diagnostic baseline: feed the normalized PICO OutputA quaternion
+            // directly into the orientation-zero path with no speculative mount
+            // or local-basis correction. This lets hardware validation determine
+            // the signed PicoOutputA -> OpenVR orientation mapping from evidence.
+            const vr::HmdQuaternion_t correctedOrientation =
+                NormalizeQuaternion(picoOrientation);
 
             if (orientationZeroPending_) {
                 orientationZeroReference_ = correctedOrientation;
