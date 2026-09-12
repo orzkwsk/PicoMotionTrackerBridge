@@ -120,7 +120,7 @@ namespace PicoOTBridge
                 referenceCombo.Items.Add("HMD (optional)");
                 referenceCombo.SelectedIndex = 0;
                 Controls.Add(referenceCombo);
-                var calibrateButton = AddButton("Align to Reference", 340, 234, 185);
+                var calibrateButton = AddButton("Measure Alignment", 340, 234, 185);
 
                 AddLabel("Diagnostics", 20, 296, 120);
                 var orientationZeroButton = AddButton("Orientation Zero", 25, 328, 135);
@@ -449,6 +449,25 @@ namespace PicoOTBridge
                 return "right";
             }
 
+            private static AlignmentState ParseCalibrationResult(string stdout)
+            {
+                Match match = Regex.Match(
+                    stdout,
+                    @"(?m)^CALIBRATION_RESULT\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\s*$",
+                    RegexOptions.CultureInvariant);
+                if (!match.Success)
+                {
+                    throw new InvalidOperationException("Calibration result was not found in calibrator output.");
+                }
+
+                return new AlignmentState
+                {
+                    X = double.Parse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture),
+                    Y = double.Parse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture),
+                    Z = double.Parse(match.Groups[3].Value, NumberStyles.Float, CultureInfo.InvariantCulture)
+                };
+            }
+
             private void Calibrate()
             {
                 string serial = trackerCombo.SelectedItem as string;
@@ -461,24 +480,25 @@ namespace PicoOTBridge
                 Thread.Sleep(100);
 
                 string reference = SelectedReferenceArgument();
-                SetStatus("Calibrating against " + referenceCombo.SelectedItem + "... keep both reference points together and still.");
+                SetStatus("Measuring alignment against " + referenceCombo.SelectedItem + "... keep both reference points together and still.");
                 Refresh();
 
                 string stderr;
                 int exitCode;
                 string stdout = RunCalibrator(
-                    "--tracker \"" + serial.Replace("\"", "") + "\" --reference " + reference,
+                    "--tracker \"" + serial.Replace("\"", "") + "\" --reference " + reference + " --measure-only",
                     out stderr,
                     out exitCode);
                 if (exitCode != 0)
                 {
-                    throw new InvalidOperationException("Calibration failed (exit " + exitCode.ToString(CultureInfo.InvariantCulture) + ").\r\n" + stdout + "\r\n" + stderr);
+                    throw new InvalidOperationException("Calibration measurement failed (exit " + exitCode.ToString(CultureInfo.InvariantCulture) + ").\r\n" + stdout + "\r\n" + stderr);
                 }
 
-                AlignmentState state = ReadAlignmentState();
-                PutStateInFields(state);
-                SaveAlignmentConfig(state.X, state.Y, state.Z);
-                SetStatus(stdout.Trim() + "\r\nSaved resulting translation.");
+                AlignmentState suggested = ParseCalibrationResult(stdout);
+                PutStateInFields(suggested);
+                SetStatus(
+                    "Measured alignment loaded into X/Y/Z fields only. Active and saved translations were not changed.\r\n" +
+                    "Review the values, then use Apply and Save explicitly if they are correct.");
             }
 
             private void PutStateInFields(AlignmentState state)
