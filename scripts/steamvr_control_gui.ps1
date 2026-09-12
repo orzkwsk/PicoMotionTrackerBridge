@@ -45,13 +45,16 @@ function Get-WpfReferenceSet {
             $windowsBase = Join-Path $dir.FullName "WindowsBase.dll"
             $presentationCore = Join-Path $dir.FullName "PresentationCore.dll"
             $presentationFramework = Join-Path $dir.FullName "PresentationFramework.dll"
+            $systemXaml = Join-Path $dir.FullName "System.Xaml.dll"
             if ((Test-Path $windowsBase) -and
                 (Test-Path $presentationCore) -and
-                (Test-Path $presentationFramework)) {
+                (Test-Path $presentationFramework) -and
+                (Test-Path $systemXaml)) {
                 return @{
                     WindowsBase = $windowsBase
                     PresentationCore = $presentationCore
                     PresentationFramework = $presentationFramework
+                    SystemXaml = $systemXaml
                     Source = $dir.FullName
                 }
             }
@@ -84,16 +87,22 @@ function Get-WpfReferenceSet {
             (Join-Path $root "PresentationFramework.dll"),
             (Join-Path $wpfDir "PresentationFramework.dll")
         )
+        $systemXamlCandidates = @(
+            (Join-Path $root "System.Xaml.dll"),
+            (Join-Path $wpfDir "System.Xaml.dll")
+        )
 
         $windowsBase = $windowsBaseCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
         $presentationCore = $presentationCoreCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
         $presentationFramework = $presentationFrameworkCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+        $systemXaml = $systemXamlCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 
-        if ($windowsBase -and $presentationCore -and $presentationFramework) {
+        if ($windowsBase -and $presentationCore -and $presentationFramework -and $systemXaml) {
             return @{
                 WindowsBase = $windowsBase
                 PresentationCore = $presentationCore
                 PresentationFramework = $presentationFramework
+                SystemXaml = $systemXaml
                 Source = $root
             }
         }
@@ -130,6 +139,7 @@ if ($needsBuild) {
         "/reference:$($WpfRefs.WindowsBase)",
         "/reference:$($WpfRefs.PresentationCore)",
         "/reference:$($WpfRefs.PresentationFramework)",
+        "/reference:$($WpfRefs.SystemXaml)",
         $GuiSource,
         $GuiMainSource
     )
