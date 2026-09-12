@@ -4,11 +4,13 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "PicoOTTest";
+    private static final int BRIDGE_PORT = 29765;
 
     static {
         Log.i(TAG, "JAVA static: loading libpico_ot_backend_test.so");
@@ -17,10 +19,13 @@ public final class MainActivity extends Activity {
     }
 
     private TextView statusView;
+    private EditText pcIpView;
 
     private static native String nativeStart();
     private static native void nativeStop();
     private static native String nativeReinitialize();
+    private static native String nativeStartBridge(String pcIpv4, int port);
+    private static native void nativeStopBridge();
 
     private String startBackend() {
         Log.i(TAG, "JAVA startBackend: entering nativeStart");
@@ -39,7 +44,7 @@ public final class MainActivity extends Activity {
         root.setPadding(32, 24, 32, 24);
 
         TextView title = new TextView(this);
-        title.setText("PICO OT Backend Test\nLogcat tag: PicoOTTest");
+        title.setText("PICO OT Backend / Bridge Test\nLogcat tag: PicoOTTest");
         title.setTextSize(22f);
         root.addView(title);
 
@@ -62,6 +67,34 @@ public final class MainActivity extends Activity {
         });
         root.addView(reinit);
 
+        pcIpView = new EditText(this);
+        pcIpView.setSingleLine(true);
+        pcIpView.setHint("PC IPv4 (example: 192.168.1.10)");
+        root.addView(pcIpView);
+
+        Button startBridge = new Button(this);
+        startBridge.setText("Start UDP Bridge -> PC:" + BRIDGE_PORT);
+        startBridge.setOnClickListener(v -> {
+            final String ip = pcIpView.getText().toString().trim();
+            if (ip.isEmpty()) {
+                statusView.setText("Enter PC IPv4 first");
+                return;
+            }
+            Log.i(TAG, "JAVA bridge: starting to " + ip + ":" + BRIDGE_PORT);
+            final String result = nativeStartBridge(ip, BRIDGE_PORT);
+            Log.i(TAG, "JAVA bridge: " + result);
+            statusView.setText(result);
+        });
+        root.addView(startBridge);
+
+        Button stopBridge = new Button(this);
+        stopBridge.setText("Stop UDP Bridge");
+        stopBridge.setOnClickListener(v -> {
+            nativeStopBridge();
+            statusView.setText("UDP bridge stopped");
+        });
+        root.addView(stopBridge);
+
         Button stop = new Button(this);
         stop.setText("Stop Backend");
         stop.setOnClickListener(v -> {
@@ -80,8 +113,9 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         Log.i(TAG, "JAVA onDestroy: begin");
+        nativeStopBridge();
         nativeStop();
-        Log.i(TAG, "JAVA onDestroy: nativeStop complete");
+        Log.i(TAG, "JAVA onDestroy: native stop complete");
         super.onDestroy();
     }
 }

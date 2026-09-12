@@ -1,5 +1,6 @@
 build/
 build-android/
+build-gui/
 .idea/
 .vscode/
 *.iml

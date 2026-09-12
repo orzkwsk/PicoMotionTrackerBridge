@@ -1,0 +1,439 @@
+#include "tracker_device.hpp"
+
+#include "driver_log.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <utility>
+
+namespace pico_ot::steamvr {
+namespace {
+
+constexpr char kVisibleRenderModelName[] =
+    "{pico_ot_bridge}/rendermodels/pico_motion_tracker";
+constexpr char kHiddenRenderModelName[] =
+    "{pico_ot_bridge}/rendermodels/pico_motion_tracker_hidden";
+
+vr::HmdQuaternion_t IdentityQuaternion() {
+    vr::HmdQuaternion_t q{};
+    q.w = 1.0;
+    return q;
+}
+
+vr::HmdQuaternion_t MultiplyQuaternion(const vr::HmdQuaternion_t& a,
+                                       const vr::HmdQuaternion_t& b) {
+    vr::HmdQuaternion_t q{};
+    q.w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z;
+    q.x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y;
+    q.y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x;
+    q.z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w;
+    return q;
+}
+
+vr::HmdQuaternion_t NormalizeQuaternion(const vr::HmdQuaternion_t& q) {
+    const double normSq = q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z;
+    if (normSq <= 1.0e-12) {
+        return IdentityQuaternion();
+    }
+
+    const double invNorm = 1.0 / std::sqrt(normSq);
+    vr::HmdQuaternion_t normalized{};
+    normalized.w = q.w * invNorm;
+    normalized.x = q.x * invNorm;
+    normalized.y = q.y * invNorm;
+    normalized.z = q.z * invNorm;
+    return normalized;
+}
+
+vr::HmdQuaternion_t InverseUnitQuaternion(const vr::HmdQuaternion_t& q) {
+    const vr::HmdQuaternion_t normalized = NormalizeQuaternion(q);
+    vr::HmdQuaternion_t inverse{};
+    inverse.w = normalized.w;
+    inverse.x = -normalized.x;
+    inverse.y = -normalized.y;
+    inverse.z = -normalized.z;
+    return inverse;
+}
+
+bool DeriveAngularVelocity(const vr::HmdQuaternion_t& previous,
+                           const vr::HmdQuaternion_t& current,
+                           double deltaSeconds,
+                           double outRadPerSec[3]) {
+    // Normal pose cadence is roughly 120 Hz. Reject discontinuities rather
+    // than turning a clock/session jump into an extreme prediction velocity.
+    if (!(deltaSeconds >= 0.001 && deltaSeconds <= 0.100)) {
+        return false;
+    }
+
+    // q_current * inverse(q_previous) expresses the incremental rotation in
+    // the same fixed driver/world axes used by the submitted output quaternion.
+    vr::HmdQuaternion_t delta = NormalizeQuaternion(MultiplyQuaternion(
+        current,
+        InverseUnitQuaternion(previous)));
+
+    // q and -q represent the same orientation. Force the shortest arc so a
+    // harmless quaternion sign flip cannot become an almost-2pi velocity.
+    if (delta.w < 0.0) {
+        delta.w = -delta.w;
+        delta.x = -delta.x;
+        delta.y = -delta.y;
+        delta.z = -delta.z;
+    }
+
+    const double sinHalfAngle =
+        std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+    if (sinHalfAngle <= 1.0e-9) {
+        outRadPerSec[0] = 0.0;
+        outRadPerSec[1] = 0.0;
+        outRadPerSec[2] = 0.0;
+        return true;
+    }
+
+    const double angle = 2.0 * std::atan2(sinHalfAngle, delta.w);
+    const double scale = angle / (sinHalfAngle * deltaSeconds);
+    const double x = delta.x * scale;
+    const double y = delta.y * scale;
+    const double z = delta.z * scale;
+    const double magnitude = std::sqrt(x * x + y * y + z * z);
+
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+        magnitude > 100.0) {
+        return false;
+    }
+
+    outRadPerSec[0] = x;
+    outRadPerSec[1] = y;
+    outRadPerSec[2] = z;
+    return true;
+}
+
+vr::HmdQuaternion_t PicoOutputAToOpenVrCandidate(
+    const vr::HmdQuaternion_t& pico) {
+    // Hardware-validated signed-axis mapping for relative orientation tests.
+    // This remains intentionally explicit here until the complete absolute
+    // PICO OutputA -> OpenVR world transform is calibrated.
+    vr::HmdQuaternion_t openVr{};
+    openVr.w = pico.w;
+    openVr.x = -pico.z;
+    openVr.y = pico.y;
+    openVr.z = -pico.x;
+    return openVr;
+}
+
+}  // namespace
+
+TrackerDevice::TrackerDevice(std::string serial)
+    : serial_(std::move(serial)), pose_(DisconnectedPose()) {
+    orientationZeroReference_ = IdentityQuaternion();
+    angularVelocityOrientation_ = IdentityQuaternion();
+}
+
+vr::EVRInitError TrackerDevice::Activate(uint32_t objectId) {
+    objectId_ = objectId;
+
+    const vr::PropertyContainerHandle_t container =
+        vr::VRProperties()->TrackedDeviceToPropertyContainer(objectId_);
+    vr::VRProperties()->SetStringProperty(
+        container, vr::Prop_SerialNumber_String, serial_.c_str());
+    vr::VRProperties()->SetStringProperty(
+        container, vr::Prop_ModelNumber_String, "PICO Motion Tracker Bridge");
+    vr::VRProperties()->SetStringProperty(
+        container, vr::Prop_ManufacturerName_String, "PICO");
+    vr::VRProperties()->SetStringProperty(
+        container, vr::Prop_TrackingSystemName_String, "pico_ot_bridge");
+    vr::VRProperties()->SetBoolProperty(
+        container, vr::Prop_DeviceIsWireless_Bool, true);
+    // Backend battery semantics are still a raw bucket candidate, so do not
+    // advertise SteamVR percentage battery support yet.
+    vr::VRProperties()->SetBoolProperty(
+        container, vr::Prop_DeviceProvidesBatteryStatus_Bool, false);
+
+    ApplyRenderModelProperty();
+
+    DriverLog("pico_ot_bridge: activated tracker %s as device %u",
+              serial_.c_str(), objectId_);
+    return vr::VRInitError_None;
+}
+
+void TrackerDevice::Deactivate() {
+    objectId_ = vr::k_unTrackedDeviceIndexInvalid;
+    pose_ = DisconnectedPose();
+    angularVelocityHistoryValid_ = false;
+    angularVelocityRadPerSec_[0] = 0.0;
+    angularVelocityRadPerSec_[1] = 0.0;
+    angularVelocityRadPerSec_[2] = 0.0;
+}
+
+void TrackerDevice::EnterStandby() {}
+
+void* TrackerDevice::GetComponent(const char* /*componentNameAndVersion*/) {
+    return nullptr;
+}
+
+void TrackerDevice::DebugRequest(const char* /*request*/,
+                                 char* responseBuffer,
+                                 uint32_t responseBufferSize) {
+    if (responseBuffer != nullptr && responseBufferSize > 0) {
+        responseBuffer[0] = '\0';
+    }
+}
+
+vr::DriverPose_t TrackerDevice::GetPose() {
+    return pose_;
+}
+
+void TrackerDevice::RequestOrientationZero() {
+    orientationZeroPending_ = true;
+    angularVelocityHistoryValid_ = false;
+    angularVelocityRadPerSec_[0] = 0.0;
+    angularVelocityRadPerSec_[1] = 0.0;
+    angularVelocityRadPerSec_[2] = 0.0;
+    DriverLog("pico_ot_bridge: orientation zero requested for %s",
+              serial_.c_str());
+}
+
+void TrackerDevice::ClearOrientationZero() {
+    orientationZeroPending_ = false;
+    orientationZeroActive_ = false;
+    orientationZeroReference_ = IdentityQuaternion();
+    angularVelocityHistoryValid_ = false;
+    angularVelocityRadPerSec_[0] = 0.0;
+    angularVelocityRadPerSec_[1] = 0.0;
+    angularVelocityRadPerSec_[2] = 0.0;
+    DriverLog("pico_ot_bridge: orientation zero cleared for %s",
+              serial_.c_str());
+}
+
+void TrackerDevice::RequestPositionZero() {
+    positionZeroPending_ = true;
+    DriverLog("pico_ot_bridge: position zero requested for %s",
+              serial_.c_str());
+}
+
+void TrackerDevice::ClearPositionZero() {
+    positionZeroPending_ = false;
+    positionZeroActive_ = false;
+    positionZeroReference_[0] = 0.0;
+    positionZeroReference_[1] = 0.0;
+    positionZeroReference_[2] = 0.0;
+    DriverLog("pico_ot_bridge: position zero cleared for %s",
+              serial_.c_str());
+}
+
+void TrackerDevice::SetWorldTranslation(double xMeters,
+                                        double yMeters,
+                                        double zMeters) noexcept {
+    worldTranslationMeters_[0] = xMeters;
+    worldTranslationMeters_[1] = yMeters;
+    worldTranslationMeters_[2] = zMeters;
+}
+
+void TrackerDevice::SetRenderModelVisible(bool visible) {
+    if (renderModelVisible_ == visible) {
+        return;
+    }
+    renderModelVisible_ = visible;
+    ApplyRenderModelProperty();
+}
+
+void TrackerDevice::ApplyRenderModelProperty() {
+    if (objectId_ == vr::k_unTrackedDeviceIndexInvalid) {
+        return;
+    }
+
+    const vr::PropertyContainerHandle_t container =
+        vr::VRProperties()->TrackedDeviceToPropertyContainer(objectId_);
+    const char* modelName = renderModelVisible_
+                                ? kVisibleRenderModelName
+                                : kHiddenRenderModelName;
+    vr::VRProperties()->SetStringProperty(
+        container, vr::Prop_RenderModelName_String, modelName);
+
+    DriverLog("pico_ot_bridge: render model %s for %s -> %s",
+              renderModelVisible_ ? "shown" : "hidden",
+              serial_.c_str(),
+              modelName);
+}
+
+vr::DriverPose_t TrackerDevice::DisconnectedPose() {
+    vr::DriverPose_t pose{};
+    pose.qWorldFromDriverRotation = IdentityQuaternion();
+    pose.qDriverFromHeadRotation = IdentityQuaternion();
+    pose.qRotation = IdentityQuaternion();
+    pose.deviceIsConnected = false;
+    pose.poseIsValid = false;
+    pose.result = vr::TrackingResult_Uninitialized;
+    return pose;
+}
+
+void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
+                           bool stale,
+                           int64_t nowPcMonotonicNs) {
+    vr::DriverPose_t next = DisconnectedPose();
+
+    if (state != nullptr && state->hasPoseSequence && !stale) {
+        next.deviceIsConnected = true;
+
+        const auto& source = state->pose;
+        const bool fullPoseValid = source.positionValid &&
+                                   source.orientationSamplePresent;
+        next.poseIsValid = fullPoseValid;
+        next.result = fullPoseValid
+                          ? vr::TrackingResult_Running_OK
+                          : vr::TrackingResult_Running_OutOfRange;
+
+        if (source.positionValid) {
+            if (positionZeroPending_) {
+                positionZeroReference_[0] = source.positionMeters.x;
+                positionZeroReference_[1] = source.positionMeters.y;
+                positionZeroReference_[2] = source.positionMeters.z;
+                positionZeroActive_ = true;
+                positionZeroPending_ = false;
+                DriverLog(
+                    "pico_ot_bridge: position zero captured for %s at %.6f %.6f %.6f m",
+                    serial_.c_str(),
+                    positionZeroReference_[0],
+                    positionZeroReference_[1],
+                    positionZeroReference_[2]);
+            }
+
+            if (positionZeroActive_) {
+                next.vecPosition[0] =
+                    source.positionMeters.x - positionZeroReference_[0];
+                next.vecPosition[1] =
+                    source.positionMeters.y - positionZeroReference_[1];
+                next.vecPosition[2] =
+                    source.positionMeters.z - positionZeroReference_[2];
+            } else {
+                // Position direction and scale are hardware-validated. The
+                // remaining calibration is the shared driver->world transform.
+                next.vecPosition[0] = source.positionMeters.x;
+                next.vecPosition[1] = source.positionMeters.y;
+                next.vecPosition[2] = source.positionMeters.z;
+            }
+
+            // Hardware validation confirmed that passing this Backend velocity
+            // removes the visible translational lag while preserving direction
+            // and displacement relative to the SteamVR controller.
+            next.vecVelocity[0] = source.linearVelocityMetersPerSec.x;
+            next.vecVelocity[1] = source.linearVelocityMetersPerSec.y;
+            next.vecVelocity[2] = source.linearVelocityMetersPerSec.z;
+        }
+
+        // Position Zero is a pure relative-motion diagnostic. Suppress the
+        // shared world translation while it is active so its captured point
+        // remains SteamVR origin. Normal output uses one translation shared by
+        // every PICO tracker through OpenVR's driver->world transform.
+        if (!positionZeroActive_) {
+            next.vecWorldFromDriverTranslation[0] = worldTranslationMeters_[0];
+            next.vecWorldFromDriverTranslation[1] = worldTranslationMeters_[1];
+            next.vecWorldFromDriverTranslation[2] = worldTranslationMeters_[2];
+        }
+
+        if (source.orientationSamplePresent) {
+            vr::HmdQuaternion_t picoOrientation{};
+            picoOrientation.w = source.orientationXyzw.w;
+            picoOrientation.x = source.orientationXyzw.x;
+            picoOrientation.y = source.orientationXyzw.y;
+            picoOrientation.z = source.orientationXyzw.z;
+
+            const vr::HmdQuaternion_t correctedOrientation =
+                NormalizeQuaternion(PicoOutputAToOpenVrCandidate(
+                    picoOrientation));
+
+            if (orientationZeroPending_) {
+                orientationZeroReference_ = correctedOrientation;
+                orientationZeroActive_ = true;
+                orientationZeroPending_ = false;
+                DriverLog("pico_ot_bridge: orientation zero captured for %s",
+                          serial_.c_str());
+            }
+
+            if (orientationZeroActive_) {
+                // Express the reset delta in OpenVR/world axes so the diagnostic
+                // axis meaning does not rotate with the tracker's orientation at
+                // the instant Zero is captured.
+                next.qRotation = NormalizeQuaternion(MultiplyQuaternion(
+                    correctedOrientation,
+                    InverseUnitQuaternion(orientationZeroReference_)));
+            } else {
+                next.qRotation = correctedOrientation;
+            }
+
+            const int64_t poseTimeNs = source.observedMonotonicNs > 0
+                                           ? source.observedMonotonicNs
+                                           : state->lastPoseReceivePcNs;
+            const bool senderChanged =
+                angularVelocityHistoryValid_ &&
+                state->senderSessionId != angularVelocitySenderSessionId_;
+            const bool freshPose =
+                !angularVelocityHistoryValid_ || senderChanged ||
+                state->lastPoseSequence != angularVelocityPoseSequence_;
+
+            if (freshPose) {
+                double derived[3] = {0.0, 0.0, 0.0};
+                bool derivedValid = false;
+                if (angularVelocityHistoryValid_ && !senderChanged &&
+                    poseTimeNs > angularVelocityPoseTimeNs_) {
+                    const double deltaSeconds =
+                        static_cast<double>(poseTimeNs - angularVelocityPoseTimeNs_) /
+                        1.0e9;
+                    derivedValid = DeriveAngularVelocity(
+                        angularVelocityOrientation_,
+                        next.qRotation,
+                        deltaSeconds,
+                        derived);
+                }
+
+                if (derivedValid) {
+                    angularVelocityRadPerSec_[0] = derived[0];
+                    angularVelocityRadPerSec_[1] = derived[1];
+                    angularVelocityRadPerSec_[2] = derived[2];
+                } else {
+                    angularVelocityRadPerSec_[0] = 0.0;
+                    angularVelocityRadPerSec_[1] = 0.0;
+                    angularVelocityRadPerSec_[2] = 0.0;
+                }
+
+                angularVelocitySenderSessionId_ = state->senderSessionId;
+                angularVelocityPoseSequence_ = state->lastPoseSequence;
+                angularVelocityPoseTimeNs_ = poseTimeNs;
+                angularVelocityOrientation_ = next.qRotation;
+                angularVelocityHistoryValid_ = poseTimeNs > 0;
+            }
+
+            if (angularVelocityHistoryValid_) {
+                next.vecAngularVelocity[0] = angularVelocityRadPerSec_[0];
+                next.vecAngularVelocity[1] = angularVelocityRadPerSec_[1];
+                next.vecAngularVelocity[2] = angularVelocityRadPerSec_[2];
+            }
+        } else {
+            angularVelocityHistoryValid_ = false;
+            angularVelocityRadPerSec_[0] = 0.0;
+            angularVelocityRadPerSec_[1] = 0.0;
+            angularVelocityRadPerSec_[2] = 0.0;
+        }
+
+        if (state->posePcMonotonicNs.has_value() && nowPcMonotonicNs > 0) {
+            const int64_t deltaNs = *state->posePcMonotonicNs - nowPcMonotonicNs;
+            // Keep a corrupted/old clock estimate from causing extreme runtime
+            // prediction. Real values during normal transport are small/negative.
+            const double seconds = static_cast<double>(deltaNs) / 1.0e9;
+            next.poseTimeOffset = std::clamp(seconds, -0.100, 0.020);
+        }
+    } else {
+        angularVelocityHistoryValid_ = false;
+        angularVelocityRadPerSec_[0] = 0.0;
+        angularVelocityRadPerSec_[1] = 0.0;
+        angularVelocityRadPerSec_[2] = 0.0;
+    }
+
+    pose_ = next;
+    if (objectId_ != vr::k_unTrackedDeviceIndexInvalid) {
+        vr::VRServerDriverHost()->TrackedDevicePoseUpdated(
+            objectId_, pose_, sizeof(vr::DriverPose_t));
+    }
+}
+
+}  // namespace pico_ot::steamvr

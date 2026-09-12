@@ -2,6 +2,7 @@
 #include <android/log.h>
 
 #include "pico_ot_backend/pico_ot_backend.h"
+#include "pico_ot_bridge/publisher.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -20,12 +21,17 @@ constexpr const char* kExpectedBuildId = "d1b55bc0598ffff93cc01eaf089793f8";
 constexpr uint32_t kPollHz = 120;
 constexpr uint32_t kPoseLogHz = 10;
 constexpr uint32_t kPoseLogEveryLoops = kPollHz / kPoseLogHz;
+constexpr uint32_t kDeviceStateEveryLoops = kPollHz * 2;
 constexpr auto kPollPeriod = std::chrono::nanoseconds(1000000000LL / kPollHz);
 
 std::mutex gLifecycleMutex;
 pico_ot_backend_t* gBackend = nullptr;
 std::thread gPollThread;
 std::atomic<bool> gRun{false};
+
+std::mutex gPublisherMutex;
+pico_ot::bridge::Publisher gPublisher;
+bool gPublisherErrorLogged = false;
 
 struct CadenceStats {
     uint64_t polls = 0;
@@ -53,6 +59,83 @@ void LogError(pico_ot_backend_t* backend, const char* where, pico_ot_status_code
         backend ? pico_ot_last_error(backend) : "no backend");
 }
 
+void LogPublisherErrorOnce(const std::string& where, const std::string& error) {
+    if (gPublisherErrorLogged) return;
+    gPublisherErrorLogged = true;
+    __android_log_print(
+        ANDROID_LOG_ERROR, kTag,
+        "BRIDGE %s failed: %s",
+        where.c_str(), error.c_str());
+}
+
+pico_ot::DeviceInfo ToDeviceInfo(const pico_ot_device_info_t& dev) {
+    pico_ot::DeviceInfo out;
+    out.serial = dev.serial;
+    out.runtimeDeviceId = dev.runtime_device_id;
+    out.connected = dev.connected != 0;
+    out.charging = dev.charging != 0;
+    if (dev.battery_bucket_present != 0) {
+        out.batteryBucketRaw = dev.battery_bucket_raw;
+    }
+    out.observedMonotonicNs = dev.observed_monotonic_ns;
+    return out;
+}
+
+pico_ot::TrackerState ToTrackerState(const pico_ot_pose_t& pose) {
+    pico_ot::TrackerState out;
+    out.serial = pose.serial;
+    out.runtimeDeviceId = pose.runtime_device_id;
+    out.connectedSnapshot = pose.connected_snapshot != 0;
+    out.positionValid = pose.position_valid != 0;
+    out.orientationSamplePresent = pose.orientation_sample_present != 0;
+    out.rawTrackingState65 = pose.raw_tracking_state_65;
+    out.sourceTimestamp = pose.source_timestamp;
+    out.observedMonotonicNs = pose.observed_monotonic_ns;
+    out.mappedMonotonicNs = pose.mapped_monotonic_ns;
+    out.mappedMonotonicValid = pose.mapped_monotonic_valid != 0;
+    out.positionMeters = {pose.position_m[0], pose.position_m[1], pose.position_m[2]};
+    out.orientationXyzw = {
+        pose.orientation_xyzw[0], pose.orientation_xyzw[1],
+        pose.orientation_xyzw[2], pose.orientation_xyzw[3]};
+    out.linearVelocityMetersPerSec = {
+        pose.linear_velocity_mps[0], pose.linear_velocity_mps[1], pose.linear_velocity_mps[2]};
+    out.angularVelocityRadPerSec = {
+        pose.angular_velocity_radps[0], pose.angular_velocity_radps[1], pose.angular_velocity_radps[2]};
+    out.frame = pico_ot::ReferenceFrame::PicoOutputA;
+    out.angularVelocityFrame = pico_ot::AngularVelocityFrame::DeviceLocalCandidate;
+    return out;
+}
+
+void SendDeviceStateIfRunning(const pico_ot_device_info_t& dev) {
+    std::lock_guard<std::mutex> lock(gPublisherMutex);
+    if (!gPublisher.IsRunning()) return;
+
+    std::string error;
+    if (!gPublisher.SendDeviceState(ToDeviceInfo(dev), &error)) {
+        LogPublisherErrorOnce("device state send", error);
+    }
+}
+
+void SendPoseIfRunning(const pico_ot_pose_t& pose) {
+    std::lock_guard<std::mutex> lock(gPublisherMutex);
+    if (!gPublisher.IsRunning()) return;
+
+    std::string error;
+    if (!gPublisher.SendPose(ToTrackerState(pose), &error)) {
+        LogPublisherErrorOnce("pose send", error);
+    }
+}
+
+void PumpPublisherIfRunning() {
+    std::lock_guard<std::mutex> lock(gPublisherMutex);
+    if (!gPublisher.IsRunning()) return;
+
+    std::string error;
+    if (!gPublisher.PumpControl(&error)) {
+        LogPublisherErrorOnce("control pump", error);
+    }
+}
+
 void ResetCadenceWindow(CadenceStats& stats) {
     stats.polls = 0;
     stats.uniqueSamples = 0;
@@ -61,8 +144,6 @@ void ResetCadenceWindow(CadenceStats& stats) {
     stats.maxUniqueDeltaNs = 0;
     stats.uniqueDeltaSumNs = 0.0L;
     stats.uniqueDeltaCount = 0;
-    // Preserve lastSourceTimestamp across windows so the first sample in the next
-    // window can still contribute a real inter-sample delta.
 }
 
 uint64_t ObserveCadence(CadenceStats& stats, uint64_t sourceTimestamp) {
@@ -152,6 +233,7 @@ void PollLoop(pico_ot_backend_t* backend) {
 
     while (gRun.load()) {
         const auto deadline = std::chrono::steady_clock::now() + kPollPeriod;
+        const bool sendDeviceState = (loop % kDeviceStateEveryLoops) == 0;
 
         const size_t count = pico_ot_device_count(backend);
         for (size_t i = 0; i < count && gRun.load(); ++i) {
@@ -161,6 +243,10 @@ void PollLoop(pico_ot_backend_t* backend) {
                 LogError(backend, "get_device", rc);
                 continue;
             }
+
+            if (sendDeviceState) {
+                SendDeviceStateIfRunning(dev);
+            }
             if (!dev.connected) continue;
 
             pico_ot_pose_t pose{};
@@ -169,6 +255,8 @@ void PollLoop(pico_ot_backend_t* backend) {
                 LogError(backend, "poll_pose", rc);
                 continue;
             }
+
+            SendPoseIfRunning(pose);
 
             const std::string serial(dev.serial);
             auto& stats = cadence[serial];
@@ -205,6 +293,8 @@ void PollLoop(pico_ot_backend_t* backend) {
                     pose.angular_velocity_radps[0], pose.angular_velocity_radps[1], pose.angular_velocity_radps[2]);
             }
         }
+
+        PumpPublisherIfRunning();
 
         ++loop;
         if ((loop % kPollHz) == 0) {
@@ -304,6 +394,43 @@ std::string StartBackend() {
     return out.str();
 }
 
+std::string StartPublisher(const std::string& pcIpv4, uint16_t port) {
+    std::lock_guard<std::mutex> lock(gPublisherMutex);
+
+    pico_ot::bridge::PublisherConfig config;
+    config.pcEndpoint = {pcIpv4, port};
+    config.localPort = 0;
+
+    std::string error;
+    if (!gPublisher.Start(config, &error)) {
+        return "Bridge start failed: " + error;
+    }
+
+    gPublisherErrorLogged = false;
+    __android_log_print(
+        ANDROID_LOG_INFO, kTag,
+        "BRIDGE started pc=%s:%u localPort=%u session=%" PRIu64,
+        pcIpv4.c_str(),
+        static_cast<unsigned>(port),
+        static_cast<unsigned>(gPublisher.LocalPort()),
+        gPublisher.SenderSessionId());
+
+    std::ostringstream out;
+    out << "UDP bridge started\nPC: " << pcIpv4 << ":" << port
+        << "\nLocal port: " << gPublisher.LocalPort()
+        << "\nSession: " << gPublisher.SenderSessionId();
+    return out.str();
+}
+
+void StopPublisher() {
+    std::lock_guard<std::mutex> lock(gPublisherMutex);
+    if (gPublisher.IsRunning()) {
+        LogInfo("BRIDGE stopping");
+    }
+    gPublisher.Stop();
+    gPublisherErrorLogged = false;
+}
+
 jstring ToJString(JNIEnv* env, const std::string& text) {
     return env->NewStringUTF(text.c_str());
 }
@@ -338,4 +465,26 @@ Java_com_orz_picootbackendtest_MainActivity_nativeReinitialize(JNIEnv* env, jcla
     }
     __android_log_print(ANDROID_LOG_INFO, kTag, "REINITIALIZE status=ok trackerMap=rebuilt clockMapper=reset");
     return ToJString(env, "Tracker map reinitialized; clock mapping reset");
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeStartBridge(
+    JNIEnv* env, jclass, jstring pcIpv4, jint port) {
+    if (pcIpv4 == nullptr || port <= 0 || port > 65535) {
+        return ToJString(env, "Bridge start failed: invalid endpoint");
+    }
+
+    const char* chars = env->GetStringUTFChars(pcIpv4, nullptr);
+    if (chars == nullptr) {
+        return ToJString(env, "Bridge start failed: invalid PC IPv4");
+    }
+    const std::string ip(chars);
+    env->ReleaseStringUTFChars(pcIpv4, chars);
+
+    return ToJString(env, StartPublisher(ip, static_cast<uint16_t>(port)));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeStopBridge(JNIEnv*, jclass) {
+    StopPublisher();
 }
