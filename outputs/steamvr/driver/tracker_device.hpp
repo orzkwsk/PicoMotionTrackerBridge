@@ -63,6 +63,16 @@ private:
     double positionZeroReference_[3] = {0.0, 0.0, 0.0};
 
     double worldTranslationMeters_[3] = {0.0, 0.0, 0.0};
+
+    // Experimental OpenVR angular prediction state. This is derived from the
+    // already-corrected/output quaternion rather than the Backend's provisional
+    // device-local angular-velocity field.
+    bool angularVelocityHistoryValid_ = false;
+    uint64_t angularVelocitySenderSessionId_ = 0;
+    uint32_t angularVelocityPoseSequence_ = 0;
+    int64_t angularVelocityPoseTimeNs_ = 0;
+    vr::HmdQuaternion_t angularVelocityOrientation_{};
+    double angularVelocityRadPerSec_[3] = {0.0, 0.0, 0.0};
 };
 
 }  // namespace pico_ot::steamvr
