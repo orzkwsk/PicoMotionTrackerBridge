@@ -138,11 +138,25 @@ if(PICO_OT_BUILD_STEAMVR_DRIVER)
         outputs/steamvr/driver/tracker_device.cpp)
     target_compile_features(pico_ot_steamvr_driver PRIVATE cxx_std_17)
     target_include_directories(pico_ot_steamvr_driver PRIVATE
-        outputs/steamvr/driver)
+        outputs/steamvr/driver
+        outputs/steamvr/common)
     target_link_libraries(pico_ot_steamvr_driver PRIVATE
         PicoOT::BridgeTransport
         openvr_api_prebuilt)
     target_compile_options(pico_ot_steamvr_driver PRIVATE /W4 /permissive-)
+
+    add_executable(pico_ot_steamvr_calibrator
+        tools/steamvr_calibrator.cpp)
+    target_compile_features(pico_ot_steamvr_calibrator PRIVATE cxx_std_17)
+    target_include_directories(pico_ot_steamvr_calibrator PRIVATE
+        outputs/steamvr/common)
+    target_link_libraries(pico_ot_steamvr_calibrator PRIVATE
+        openvr_api_prebuilt)
+    target_compile_options(pico_ot_steamvr_calibrator PRIVATE /W4 /permissive-)
+    add_custom_command(TARGET pico_ot_steamvr_calibrator POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${openvr_sdk_SOURCE_DIR}/bin/win64/openvr_api.dll"
+            "$<TARGET_FILE_DIR:pico_ot_steamvr_calibrator>/openvr_api.dll")
 
     set(PICO_OT_STEAMVR_PACKAGE_DIR "${CMAKE_BINARY_DIR}/steamvr/pico_ot_bridge")
     set(PICO_OT_STEAMVR_BIN_DIR "${PICO_OT_STEAMVR_PACKAGE_DIR}/bin/win64")
