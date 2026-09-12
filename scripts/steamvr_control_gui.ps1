@@ -3,7 +3,7 @@ param()
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$GuiSource = Join-Path $RepoRoot "tools\steamvr_control_gui.cs"
+$GuiSource = Join-Path $RepoRoot "tools\steamvr_control_wpf.cs"
 $GuiMainSource = Join-Path $RepoRoot "tools\steamvr_control_gui_main.cs"
 $BuildDir = Join-Path $RepoRoot "build-gui"
 $GuiExe = Join-Path $BuildDir "pico_ot_steamvr_control.exe"
@@ -44,15 +44,16 @@ if ($needsBuild) {
         /out:$GuiExe `
         /reference:System.dll `
         /reference:System.Core.dll `
-        /reference:System.Windows.Forms.dll `
-        /reference:System.Drawing.dll `
+        /reference:WindowsBase.dll `
+        /reference:PresentationCore.dll `
+        /reference:PresentationFramework.dll `
         $GuiSource `
         $GuiMainSource
 
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $GuiExe)) {
-        throw "Failed to build SteamVR control GUI executable."
+        throw "Failed to build WPF SteamVR control GUI executable."
     }
 }
 
-Write-Host "GUI: $GuiExe"
+Write-Host "WPF GUI: $GuiExe"
 Start-Process -FilePath $GuiExe -ArgumentList @($RepoRoot)
