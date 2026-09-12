@@ -27,6 +27,10 @@ constexpr wchar_t kPositionZeroEventName[] =
     L"Local\\PicoOTBridge_PositionZero";
 constexpr wchar_t kPositionClearEventName[] =
     L"Local\\PicoOTBridge_PositionClear";
+constexpr wchar_t kRenderModelShowEventName[] =
+    L"Local\\PicoOTBridge_RenderModelShow";
+constexpr wchar_t kRenderModelHideEventName[] =
+    L"Local\\PicoOTBridge_RenderModelHide";
 
 bool TranslationIsFinite(const double translation[3]) {
     return std::isfinite(translation[0]) &&
@@ -75,6 +79,20 @@ vr::EVRInitError DeviceProvider::Init(vr::IVRDriverContext* driverContext) {
         nullptr, FALSE, FALSE, kPositionClearEventName);
     if (positionClearEvent_ == nullptr) {
         DriverLog("pico_ot_bridge: failed to create position-clear event: %lu",
+                  static_cast<unsigned long>(GetLastError()));
+    }
+
+    renderModelShowEvent_ = CreateEventW(
+        nullptr, FALSE, FALSE, kRenderModelShowEventName);
+    if (renderModelShowEvent_ == nullptr) {
+        DriverLog("pico_ot_bridge: failed to create render-model-show event: %lu",
+                  static_cast<unsigned long>(GetLastError()));
+    }
+
+    renderModelHideEvent_ = CreateEventW(
+        nullptr, FALSE, FALSE, kRenderModelHideEventName);
+    if (renderModelHideEvent_ == nullptr) {
+        DriverLog("pico_ot_bridge: failed to create render-model-hide event: %lu",
                   static_cast<unsigned long>(GetLastError()));
     }
 
@@ -130,6 +148,7 @@ vr::EVRInitError DeviceProvider::Init(vr::IVRDriverContext* driverContext) {
               receiver_.ListenPort());
     DriverLog("pico_ot_bridge: orientation diagnostics ready (Zero/Clear named events)");
     DriverLog("pico_ot_bridge: position diagnostics ready (Zero/Clear named events)");
+    DriverLog("pico_ot_bridge: render-model controls ready (Show/Hide named events)");
     DriverLog(
         "pico_ot_bridge: world alignment ready translation=%.6f %.6f %.6f m",
         worldTranslationMeters_[0],
@@ -155,6 +174,14 @@ void DeviceProvider::Cleanup() {
         CloseHandle(static_cast<HANDLE>(positionClearEvent_));
         positionClearEvent_ = nullptr;
     }
+    if (renderModelShowEvent_ != nullptr) {
+        CloseHandle(static_cast<HANDLE>(renderModelShowEvent_));
+        renderModelShowEvent_ = nullptr;
+    }
+    if (renderModelHideEvent_ != nullptr) {
+        CloseHandle(static_cast<HANDLE>(renderModelHideEvent_));
+        renderModelHideEvent_ = nullptr;
+    }
     if (worldAlignmentUpdatedEvent_ != nullptr) {
         CloseHandle(static_cast<HANDLE>(worldAlignmentUpdatedEvent_));
         worldAlignmentUpdatedEvent_ = nullptr;
@@ -170,6 +197,7 @@ void DeviceProvider::Cleanup() {
 
     diagnosticOrientationZeroEnabled_ = false;
     diagnosticPositionZeroEnabled_ = false;
+    renderModelVisible_ = true;
     worldTranslationMeters_[0] = 0.0;
     worldTranslationMeters_[1] = 0.0;
     worldTranslationMeters_[2] = 0.0;
@@ -213,6 +241,7 @@ void DeviceProvider::AddNewTrackers() {
             worldTranslationMeters_[0],
             worldTranslationMeters_[1],
             worldTranslationMeters_[2]);
+        rawDevice->SetRenderModelVisible(renderModelVisible_);
 
         if (diagnosticOrientationZeroEnabled_) {
             rawDevice->RequestOrientationZero();
@@ -269,6 +298,24 @@ void DeviceProvider::ProcessDiagnosticControls() {
     }
 }
 
+void DeviceProvider::ProcessRenderModelControls() {
+    if (renderModelShowEvent_ != nullptr &&
+        WaitForSingleObject(static_cast<HANDLE>(renderModelShowEvent_), 0) ==
+            WAIT_OBJECT_0) {
+        renderModelVisible_ = true;
+        ApplyRenderModelVisibilityToDevices();
+        DriverLog("pico_ot_bridge: render models shown for all trackers");
+    }
+
+    if (renderModelHideEvent_ != nullptr &&
+        WaitForSingleObject(static_cast<HANDLE>(renderModelHideEvent_), 0) ==
+            WAIT_OBJECT_0) {
+        renderModelVisible_ = false;
+        ApplyRenderModelVisibilityToDevices();
+        DriverLog("pico_ot_bridge: render models hidden for all trackers");
+    }
+}
+
 void DeviceProvider::ProcessWorldAlignmentControl() {
     if (worldAlignmentUpdatedEvent_ == nullptr ||
         worldAlignmentView_ == nullptr ||
@@ -314,6 +361,12 @@ void DeviceProvider::ApplyWorldTranslationToDevices() {
     }
 }
 
+void DeviceProvider::ApplyRenderModelVisibilityToDevices() {
+    for (auto& entry : devices_) {
+        entry.second->SetRenderModelVisible(renderModelVisible_);
+    }
+}
+
 void DeviceProvider::UpdateTrackers(int64_t nowPcMonotonicNs) {
     for (auto& entry : devices_) {
         const auto* state = receiver_.Find(entry.first);
@@ -336,6 +389,7 @@ void DeviceProvider::RunFrame() {
 
     AddNewTrackers();
     ProcessDiagnosticControls();
+    ProcessRenderModelControls();
     ProcessWorldAlignmentControl();
     UpdateTrackers(pico_ot::bridge::MonotonicNowNs());
 
