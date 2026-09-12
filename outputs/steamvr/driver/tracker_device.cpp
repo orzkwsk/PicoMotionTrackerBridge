@@ -3,6 +3,7 @@
 #include "driver_log.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <utility>
 
@@ -25,16 +26,39 @@ vr::HmdQuaternion_t MultiplyQuaternion(const vr::HmdQuaternion_t& a,
     return q;
 }
 
+vr::HmdQuaternion_t NormalizeQuaternion(const vr::HmdQuaternion_t& q) {
+    const double normSq = q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z;
+    if (normSq <= 1.0e-12) {
+        return IdentityQuaternion();
+    }
+
+    const double invNorm = 1.0 / std::sqrt(normSq);
+    vr::HmdQuaternion_t normalized{};
+    normalized.w = q.w * invNorm;
+    normalized.x = q.x * invNorm;
+    normalized.y = q.y * invNorm;
+    normalized.z = q.z * invNorm;
+    return normalized;
+}
+
+vr::HmdQuaternion_t InverseUnitQuaternion(const vr::HmdQuaternion_t& q) {
+    const vr::HmdQuaternion_t normalized = NormalizeQuaternion(q);
+    vr::HmdQuaternion_t inverse{};
+    inverse.w = normalized.w;
+    inverse.x = -normalized.x;
+    inverse.y = -normalized.y;
+    inverse.z = -normalized.z;
+    return inverse;
+}
+
 vr::HmdQuaternion_t PicoTrackerLocalToOpenVrLocal() {
     // Measured on hardware with the tracker held in its normal orientation:
     //   physical right-roll -> raw/OpenVR nose-down pitch
     //   physical nose-down pitch -> raw/OpenVR left-roll
     //   yaw direction matches
-    // The inverse local-basis correction is a -90 degree rotation about the
-    // local +Y axis when the PICO quaternion is otherwise interpreted in the
-    // OpenVR world basis. Keep this as an output-layer mount/local-basis
-    // correction; the Backend continues to expose the unmodified PICO OutputA
-    // quaternion.
+    // The current inverse local-basis candidate is a -90 degree rotation about
+    // local +Y. This remains diagnostic until the three signed local axes are
+    // conclusively validated on hardware.
     constexpr double kSqrtHalf = 0.70710678118654752440;
     vr::HmdQuaternion_t q{};
     q.w = kSqrtHalf;
@@ -45,7 +69,9 @@ vr::HmdQuaternion_t PicoTrackerLocalToOpenVrLocal() {
 }  // namespace
 
 TrackerDevice::TrackerDevice(std::string serial)
-    : serial_(std::move(serial)), pose_(DisconnectedPose()) {}
+    : serial_(std::move(serial)), pose_(DisconnectedPose()) {
+    orientationZeroReference_ = IdentityQuaternion();
+}
 
 vr::EVRInitError TrackerDevice::Activate(uint32_t objectId) {
     objectId_ = objectId;
@@ -95,6 +121,20 @@ vr::DriverPose_t TrackerDevice::GetPose() {
     return pose_;
 }
 
+void TrackerDevice::RequestOrientationZero() {
+    orientationZeroPending_ = true;
+    DriverLog("pico_ot_bridge: orientation zero requested for %s",
+              serial_.c_str());
+}
+
+void TrackerDevice::ClearOrientationZero() {
+    orientationZeroPending_ = false;
+    orientationZeroActive_ = false;
+    orientationZeroReference_ = IdentityQuaternion();
+    DriverLog("pico_ot_bridge: orientation zero cleared for %s",
+              serial_.c_str());
+}
+
 vr::DriverPose_t TrackerDevice::DisconnectedPose() {
     vr::DriverPose_t pose{};
     pose.qWorldFromDriverRotation = IdentityQuaternion();
@@ -140,8 +180,25 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             // q_pico maps the PICO tracker-local basis into the world basis.
             // Post-multiplication changes only the tracker-local/mount basis;
             // it deliberately does not rotate the world position axes.
-            next.qRotation = MultiplyQuaternion(
-                picoOrientation, PicoTrackerLocalToOpenVrLocal());
+            const vr::HmdQuaternion_t correctedOrientation = NormalizeQuaternion(
+                MultiplyQuaternion(picoOrientation,
+                                   PicoTrackerLocalToOpenVrLocal()));
+
+            if (orientationZeroPending_) {
+                orientationZeroReference_ = correctedOrientation;
+                orientationZeroActive_ = true;
+                orientationZeroPending_ = false;
+                DriverLog("pico_ot_bridge: orientation zero captured for %s",
+                          serial_.c_str());
+            }
+
+            if (orientationZeroActive_) {
+                next.qRotation = NormalizeQuaternion(MultiplyQuaternion(
+                    InverseUnitQuaternion(orientationZeroReference_),
+                    correctedOrientation));
+            } else {
+                next.qRotation = correctedOrientation;
+            }
         }
 
         // Velocity fields intentionally remain zero for initial bring-up.
