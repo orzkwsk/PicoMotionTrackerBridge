@@ -24,6 +24,8 @@ public:
 private:
     void AddNewTrackers();
     void ProcessDiagnosticControls();
+    void ProcessWorldAlignmentControl();
+    void ApplyWorldTranslationToDevices();
     void UpdateTrackers(int64_t nowPcMonotonicNs);
 
     pico_ot::bridge::Receiver receiver_;
@@ -38,6 +40,14 @@ private:
     void* positionClearEvent_ = nullptr;
     bool diagnosticOrientationZeroEnabled_ = false;
     bool diagnosticPositionZeroEnabled_ = false;
+
+    // Shared world-alignment IPC. The driver owns the mapping lifetime while
+    // SteamVR is running; a PC-side calibrator updates the state and signals
+    // worldAlignmentUpdatedEvent_.
+    void* worldAlignmentMapping_ = nullptr;
+    void* worldAlignmentView_ = nullptr;
+    void* worldAlignmentUpdatedEvent_ = nullptr;
+    double worldTranslationMeters_[3] = {0.0, 0.0, 0.0};
 };
 
 }  // namespace pico_ot::steamvr
