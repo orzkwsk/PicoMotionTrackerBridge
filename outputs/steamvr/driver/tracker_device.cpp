@@ -57,14 +57,14 @@ vr::HmdQuaternion_t PicoOutputAToOpenVrCandidate(
     //   raw+zero yaw:               correct
     //   physical nose-down pitch -> displayed left roll
     //   physical left roll       -> displayed nose-down pitch
-    // Research handoff also records a non-trivial PICO tracker-local axis
-    // convention. Test this explicit component mapping before treating it as
-    // the final PicoOutputA -> OpenVR orientation conversion.
+    // The previous x=-z, z=-x candidate fixed pitch but inverted roll and used
+    // an improper reflection. Keep the validated pitch mapping while changing
+    // z to +x so the X/Z remap is a proper rotation candidate.
     vr::HmdQuaternion_t openVr{};
     openVr.w = pico.w;
     openVr.x = -pico.z;
     openVr.y = pico.y;
-    openVr.z = -pico.x;
+    openVr.z = pico.x;
     return openVr;
 }
 
