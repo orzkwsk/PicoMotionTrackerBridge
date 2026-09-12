@@ -10,6 +10,7 @@
 
 #include <openvr.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
