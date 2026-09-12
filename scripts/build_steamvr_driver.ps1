@@ -29,8 +29,8 @@ Write-Host "Build: $BuildDir"
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed." }
 
 & $cmake --build $BuildDir --config $Config --target `
-    pico_ot_steamvr_driver pico_ot_bridge_receiver_cli
-if ($LASTEXITCODE -ne 0) { throw "SteamVR driver build failed." }
+    pico_ot_steamvr_driver pico_ot_steamvr_calibrator pico_ot_bridge_receiver_cli
+if ($LASTEXITCODE -ne 0) { throw "SteamVR driver/calibrator build failed." }
 
 & $cmake --build $BuildDir --config $Config
 if ($LASTEXITCODE -ne 0) { throw "Host test build failed." }
@@ -49,11 +49,16 @@ if (-not (Test-Path $DriverDll)) {
 
 $ReceiverCli = Get-ChildItem -Path $BuildDir -Filter "pico_ot_bridge_receiver_cli.exe" -Recurse |
     Select-Object -First 1 -ExpandProperty FullName
+$Calibrator = Get-ChildItem -Path $BuildDir -Filter "pico_ot_steamvr_calibrator.exe" -Recurse |
+    Select-Object -First 1 -ExpandProperty FullName
 
 Write-Host ""
 Write-Host "SteamVR driver package: $PackageDir"
 Write-Host "Driver DLL: $DriverDll"
 if ($ReceiverCli) {
     Write-Host "Receiver CLI: $ReceiverCli"
+}
+if ($Calibrator) {
+    Write-Host "Calibrator: $Calibrator"
 }
 Write-Host "Build/test complete."
