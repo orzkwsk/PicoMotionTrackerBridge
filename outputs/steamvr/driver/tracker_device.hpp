@@ -30,6 +30,13 @@ public:
     void RequestOrientationZero();
     void ClearOrientationZero();
 
+    // Diagnostic-only position zeroing. RequestPositionZero captures the next
+    // fresh valid position and subtracts it from subsequent samples. This is
+    // intentionally per-tracker so relative motion can be validated without a
+    // guessed world-space translation.
+    void RequestPositionZero();
+    void ClearPositionZero();
+
     void Update(const pico_ot::bridge::ReceivedTrackerState* state,
                 bool stale,
                 int64_t nowPcMonotonicNs);
@@ -44,6 +51,10 @@ private:
     bool orientationZeroPending_ = false;
     bool orientationZeroActive_ = false;
     vr::HmdQuaternion_t orientationZeroReference_{};
+
+    bool positionZeroPending_ = false;
+    bool positionZeroActive_ = false;
+    double positionZeroReference_[3] = {0.0, 0.0, 0.0};
 };
 
 }  // namespace pico_ot::steamvr
