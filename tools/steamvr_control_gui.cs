@@ -16,7 +16,6 @@ namespace PicoOTBridge
         public static void Run(string repoRoot)
         {
             Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
             using (var form = new ControlForm(repoRoot))
             {
                 Application.Run(form);
