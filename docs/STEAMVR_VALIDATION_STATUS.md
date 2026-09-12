@@ -15,10 +15,13 @@ This file records hardware-observed results for `feature/steamvr-output` separat
   - hardware observation: translational lag relative to the SteamVR controller disappeared
   - movement direction and amount remained matched to the controller
   - no observed overshoot or reverse-direction artifact in the validation motion
+- output-quaternion-derived angular velocity -> OpenVR `DriverPose_t::vecAngularVelocity`: PASS
+  - hardware observation: rotational response became substantially faster
+  - fine hand tremor became visibly represented, indicating close pose-following behavior
+  - no instability, gross overshoot, or axis mismatch was reported in the validation motion
 
 ## Pending
 
-- rotational prediction / OpenVR `vecAngularVelocity`
 - exact PICO tracker physical pose-origin offset
 - optional user-facing XYZ fine adjustment / persistent calibration UI
 - more rigorous multi-point rigid alignment if a world-rotation residual is later observed
