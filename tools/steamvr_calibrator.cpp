@@ -23,11 +23,19 @@
 
 namespace {
 
+enum class ReferenceKind {
+    None,
+    LeftController,
+    RightController,
+    Hmd,
+};
+
 struct Options {
     bool list = false;
+    bool listTrackers = false;
     bool clear = false;
     std::string trackerSerial;
-    vr::ETrackedControllerRole controllerRole = vr::TrackedControllerRole_Invalid;
+    ReferenceKind reference = ReferenceKind::None;
     int samples = 120;
     int intervalMs = 8;
 };
@@ -55,10 +63,13 @@ void PrintUsage() {
         << "PICO OT SteamVR translation calibrator\n\n"
         << "Usage:\n"
         << "  pico_ot_steamvr_calibrator --list\n"
+        << "  pico_ot_steamvr_calibrator --list-trackers\n"
         << "  pico_ot_steamvr_calibrator --clear\n"
-        << "  pico_ot_steamvr_calibrator --tracker <serial> --controller <left|right>\n"
+        << "  pico_ot_steamvr_calibrator --tracker <serial> --reference <left|right|hmd>\n"
         << "      [--samples <count>] [--interval-ms <milliseconds>]\n\n"
-        << "Calibration assumes the selected controller and PICO tracker pose\n"
+        << "Backward compatibility:\n"
+        << "  --controller <left|right> is accepted as an alias for --reference.\n\n"
+        << "Calibration assumes the selected reference device and PICO tracker pose\n"
         << "reference points are held at the same physical point while sampling.\n";
 }
 
@@ -75,11 +86,29 @@ bool ParsePositiveInt(const char* text, int& value) {
     return true;
 }
 
+bool ParseReference(const std::string& text, ReferenceKind& reference) {
+    if (text == "left") {
+        reference = ReferenceKind::LeftController;
+        return true;
+    }
+    if (text == "right") {
+        reference = ReferenceKind::RightController;
+        return true;
+    }
+    if (text == "hmd") {
+        reference = ReferenceKind::Hmd;
+        return true;
+    }
+    return false;
+}
+
 bool ParseArgs(int argc, char** argv, Options& options) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--list") {
             options.list = true;
+        } else if (arg == "--list-trackers") {
+            options.listTrackers = true;
         } else if (arg == "--clear") {
             options.clear = true;
         } else if (arg == "--tracker") {
@@ -87,15 +116,19 @@ bool ParseArgs(int argc, char** argv, Options& options) {
                 return false;
             }
             options.trackerSerial = argv[++i];
+        } else if (arg == "--reference") {
+            if (i + 1 >= argc || !ParseReference(argv[++i], options.reference)) {
+                return false;
+            }
         } else if (arg == "--controller") {
             if (i + 1 >= argc) {
                 return false;
             }
             const std::string role = argv[++i];
             if (role == "left") {
-                options.controllerRole = vr::TrackedControllerRole_LeftHand;
+                options.reference = ReferenceKind::LeftController;
             } else if (role == "right") {
-                options.controllerRole = vr::TrackedControllerRole_RightHand;
+                options.reference = ReferenceKind::RightController;
             } else {
                 return false;
             }
@@ -115,13 +148,14 @@ bool ParseArgs(int argc, char** argv, Options& options) {
         }
     }
 
-    const int modeCount = (options.list ? 1 : 0) + (options.clear ? 1 : 0) +
+    const int modeCount = (options.list ? 1 : 0) +
+                          (options.listTrackers ? 1 : 0) +
+                          (options.clear ? 1 : 0) +
                           (!options.trackerSerial.empty() ? 1 : 0);
     if (modeCount != 1) {
         return false;
     }
-    if (!options.trackerSerial.empty() &&
-        options.controllerRole == vr::TrackedControllerRole_Invalid) {
+    if (!options.trackerSerial.empty() && options.reference == ReferenceKind::None) {
         return false;
     }
     return true;
@@ -182,12 +216,14 @@ bool WriteTranslation(AlignmentMapping& ipc,
     return true;
 }
 
-std::string GetDeviceSerial(vr::IVRSystem* system, vr::TrackedDeviceIndex_t index) {
+std::string GetDeviceStringProperty(vr::IVRSystem* system,
+                                    vr::TrackedDeviceIndex_t index,
+                                    vr::ETrackedDeviceProperty property) {
     char buffer[256]{};
     vr::ETrackedPropertyError propertyError = vr::TrackedProp_Success;
     system->GetStringTrackedDeviceProperty(
         index,
-        vr::Prop_SerialNumber_String,
+        property,
         buffer,
         static_cast<std::uint32_t>(sizeof(buffer)),
         &propertyError);
@@ -195,6 +231,18 @@ std::string GetDeviceSerial(vr::IVRSystem* system, vr::TrackedDeviceIndex_t inde
         return {};
     }
     return buffer;
+}
+
+std::string GetDeviceSerial(vr::IVRSystem* system, vr::TrackedDeviceIndex_t index) {
+    return GetDeviceStringProperty(system, index, vr::Prop_SerialNumber_String);
+}
+
+bool IsPicoBridgeTracker(vr::IVRSystem* system, vr::TrackedDeviceIndex_t index) {
+    if (system->GetTrackedDeviceClass(index) != vr::TrackedDeviceClass_GenericTracker) {
+        return false;
+    }
+    return GetDeviceStringProperty(system, index, vr::Prop_TrackingSystemName_String) ==
+           "pico_ot_bridge";
 }
 
 const char* DeviceClassName(vr::ETrackedDeviceClass deviceClass) {
@@ -222,6 +270,19 @@ const char* RoleName(vr::ETrackedControllerRole role) {
         return "Right";
     default:
         return "-";
+    }
+}
+
+const char* ReferenceName(ReferenceKind reference) {
+    switch (reference) {
+    case ReferenceKind::LeftController:
+        return "Left Controller";
+    case ReferenceKind::RightController:
+        return "Right Controller";
+    case ReferenceKind::Hmd:
+        return "HMD";
+    default:
+        return "Invalid";
     }
 }
 
@@ -264,12 +325,23 @@ void ListDevices(vr::IVRSystem* system) {
     }
 }
 
+void ListPicoTrackers(vr::IVRSystem* system) {
+    for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+        if (!IsPicoBridgeTracker(system, i)) {
+            continue;
+        }
+        const std::string serial = GetDeviceSerial(system, i);
+        if (!serial.empty()) {
+            std::cout << serial << '\n';
+        }
+    }
+}
+
 std::optional<vr::TrackedDeviceIndex_t> FindTracker(
     vr::IVRSystem* system,
     const std::string& serial) {
     for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
-        if (system->GetTrackedDeviceClass(i) !=
-            vr::TrackedDeviceClass_GenericTracker) {
+        if (!IsPicoBridgeTracker(system, i)) {
             continue;
         }
         if (GetDeviceSerial(system, i) == serial) {
@@ -279,15 +351,27 @@ std::optional<vr::TrackedDeviceIndex_t> FindTracker(
     return std::nullopt;
 }
 
-std::optional<vr::TrackedDeviceIndex_t> FindController(
+std::optional<vr::TrackedDeviceIndex_t> FindReference(
     vr::IVRSystem* system,
-    vr::ETrackedControllerRole role) {
+    ReferenceKind reference) {
+    if (reference == ReferenceKind::Hmd) {
+        for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
+            if (system->GetTrackedDeviceClass(i) == vr::TrackedDeviceClass_HMD) {
+                return i;
+            }
+        }
+        return std::nullopt;
+    }
+
+    const vr::ETrackedControllerRole wantedRole =
+        reference == ReferenceKind::LeftController
+            ? vr::TrackedControllerRole_LeftHand
+            : vr::TrackedControllerRole_RightHand;
     for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
-        if (system->GetTrackedDeviceClass(i) !=
-            vr::TrackedDeviceClass_Controller) {
+        if (system->GetTrackedDeviceClass(i) != vr::TrackedDeviceClass_Controller) {
             continue;
         }
-        if (system->GetControllerRoleForTrackedDeviceIndex(i) == role) {
+        if (system->GetControllerRoleForTrackedDeviceIndex(i) == wantedRole) {
             return i;
         }
     }
@@ -299,15 +383,15 @@ int RunCalibration(vr::IVRSystem* system,
                    const Options& options) {
     const auto trackerIndex = FindTracker(system, options.trackerSerial);
     if (!trackerIndex.has_value()) {
-        std::cerr << "Tracker serial was not found in SteamVR: "
+        std::cerr << "PICO bridge tracker serial was not found in SteamVR: "
                   << options.trackerSerial << '\n';
         return 4;
     }
 
-    const auto controllerIndex = FindController(system, options.controllerRole);
-    if (!controllerIndex.has_value()) {
-        std::cerr << "Requested controller role was not found in SteamVR: "
-                  << RoleName(options.controllerRole) << '\n';
+    const auto referenceIndex = FindReference(system, options.reference);
+    if (!referenceIndex.has_value()) {
+        std::cerr << "Requested reference device was not found in SteamVR: "
+                  << ReferenceName(options.reference) << '\n';
         return 5;
     }
 
@@ -315,10 +399,10 @@ int RunCalibration(vr::IVRSystem* system,
     int validSamples = 0;
     vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount]{};
 
-    std::cout << "Tracker:    index=" << *trackerIndex
+    std::cout << "Tracker:   index=" << *trackerIndex
               << " serial=" << options.trackerSerial << '\n';
-    std::cout << "Controller: index=" << *controllerIndex
-              << " role=" << RoleName(options.controllerRole) << '\n';
+    std::cout << "Reference: index=" << *referenceIndex
+              << " type=" << ReferenceName(options.reference) << '\n';
     std::cout << "Sampling " << options.samples
               << " frames; keep both reference points together and still.\n";
 
@@ -330,19 +414,18 @@ int RunCalibration(vr::IVRSystem* system,
             vr::k_unMaxTrackedDeviceCount);
 
         const auto& trackerPose = poses[*trackerIndex];
-        const auto& controllerPose = poses[*controllerIndex];
+        const auto& referencePose = poses[*referenceIndex];
         if (trackerPose.bDeviceIsConnected && trackerPose.bPoseIsValid &&
-            controllerPose.bDeviceIsConnected && controllerPose.bPoseIsValid) {
+            referencePose.bDeviceIsConnected && referencePose.bPoseIsValid) {
             const auto trackerPosition = PoseTranslation(trackerPose);
-            const auto controllerPosition = PoseTranslation(controllerPose);
+            const auto referencePosition = PoseTranslation(referencePose);
             for (std::size_t axis = 0; axis < deltaSum.size(); ++axis) {
-                deltaSum[axis] += controllerPosition[axis] - trackerPosition[axis];
+                deltaSum[axis] += referencePosition[axis] - trackerPosition[axis];
             }
             ++validSamples;
         }
 
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(options.intervalMs));
+        std::this_thread::sleep_for(std::chrono::milliseconds(options.intervalMs));
     }
 
     const int minimumValidSamples = std::max(10, options.samples / 4);
@@ -420,6 +503,8 @@ int main(int argc, char** argv) {
     int result = 0;
     if (options.list) {
         ListDevices(system);
+    } else if (options.listTrackers) {
+        ListPicoTrackers(system);
     } else {
         result = RunCalibration(system, ipc, options);
     }
