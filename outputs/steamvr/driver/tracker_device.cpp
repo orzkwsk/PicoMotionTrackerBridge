@@ -51,13 +51,13 @@ vr::HmdQuaternion_t InverseUnitQuaternion(const vr::HmdQuaternion_t& q) {
     return inverse;
 }
 
-vr::HmdQuaternion_t PicoOutputAToOpenVrCandidate(
+vr::HmdQuaternion_t PicoOutputAToOpenVrOrientation(
     const vr::HmdQuaternion_t& pico) {
-    // Experimental signed-axis mapping derived from hardware validation.
-    // After the X/Z remap, pitch/yaw axes and directions matched while roll
-    // remained inverted. Keep the validated axis mapping and flip only the
-    // OpenVR roll component. This intentionally remains a diagnostic candidate
-    // until the active/passive/handedness convention is fully characterized.
+    // Hardware-validated relative orientation mapping for PICO OutputA ->
+    // OpenVR tracker axes. With orientation zero captured in multiple initial
+    // tracker orientations, physical pitch/roll/yaw axes and directions all
+    // remained stable and matched OpenVR after this component remap.
+    // Absolute world orientation/alignment remains a separate calibration step.
     vr::HmdQuaternion_t openVr{};
     openVr.w = pico.w;
     openVr.x = -pico.z;
@@ -178,7 +178,7 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             picoOrientation.z = source.orientationXyzw.z;
 
             const vr::HmdQuaternion_t correctedOrientation =
-                NormalizeQuaternion(PicoOutputAToOpenVrCandidate(
+                NormalizeQuaternion(PicoOutputAToOpenVrOrientation(
                     picoOrientation));
 
             if (orientationZeroPending_) {
@@ -192,7 +192,8 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             if (orientationZeroActive_) {
                 // Express the reset delta in OpenVR/world axes so the diagnostic
                 // axis meaning does not rotate with the tracker's orientation at
-                // the instant Zero is captured.
+                // the instant Zero is captured. Hardware validation confirmed this
+                // remains stable across multiple initial tracker orientations.
                 next.qRotation = NormalizeQuaternion(MultiplyQuaternion(
                     correctedOrientation,
                     InverseUnitQuaternion(orientationZeroReference_)));
