@@ -142,9 +142,15 @@ namespace PicoOTBridge
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(86) });
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.0, GridUnitType.Star) });
 
-                xBox = AddAxisRow(grid, 0, "X", out Button xMinus, out Button xPlus);
-                yBox = AddAxisRow(grid, 1, "Y", out Button yMinus, out Button yPlus);
-                zBox = AddAxisRow(grid, 2, "Z", out Button zMinus, out Button zPlus);
+                Button xMinus;
+                Button xPlus;
+                Button yMinus;
+                Button yPlus;
+                Button zMinus;
+                Button zPlus;
+                xBox = AddAxisRow(grid, 0, "X", out xMinus, out xPlus);
+                yBox = AddAxisRow(grid, 1, "Y", out yMinus, out yPlus);
+                zBox = AddAxisRow(grid, 2, "Z", out zMinus, out zPlus);
                 panel.Children.Add(grid);
 
                 var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
