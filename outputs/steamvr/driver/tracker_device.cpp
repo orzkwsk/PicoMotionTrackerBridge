@@ -51,6 +51,58 @@ vr::HmdQuaternion_t InverseUnitQuaternion(const vr::HmdQuaternion_t& q) {
     return inverse;
 }
 
+bool DeriveAngularVelocity(const vr::HmdQuaternion_t& previous,
+                           const vr::HmdQuaternion_t& current,
+                           double deltaSeconds,
+                           double outRadPerSec[3]) {
+    // Normal pose cadence is roughly 120 Hz. Reject discontinuities rather
+    // than turning a clock/session jump into an extreme prediction velocity.
+    if (!(deltaSeconds >= 0.001 && deltaSeconds <= 0.100)) {
+        return false;
+    }
+
+    // q_current * inverse(q_previous) expresses the incremental rotation in
+    // the same fixed driver/world axes used by the submitted output quaternion.
+    vr::HmdQuaternion_t delta = NormalizeQuaternion(MultiplyQuaternion(
+        current,
+        InverseUnitQuaternion(previous)));
+
+    // q and -q represent the same orientation. Force the shortest arc so a
+    // harmless quaternion sign flip cannot become an almost-2pi velocity.
+    if (delta.w < 0.0) {
+        delta.w = -delta.w;
+        delta.x = -delta.x;
+        delta.y = -delta.y;
+        delta.z = -delta.z;
+    }
+
+    const double sinHalfAngle =
+        std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+    if (sinHalfAngle <= 1.0e-9) {
+        outRadPerSec[0] = 0.0;
+        outRadPerSec[1] = 0.0;
+        outRadPerSec[2] = 0.0;
+        return true;
+    }
+
+    const double angle = 2.0 * std::atan2(sinHalfAngle, delta.w);
+    const double scale = angle / (sinHalfAngle * deltaSeconds);
+    const double x = delta.x * scale;
+    const double y = delta.y * scale;
+    const double z = delta.z * scale;
+    const double magnitude = std::sqrt(x * x + y * y + z * z);
+
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+        magnitude > 100.0) {
+        return false;
+    }
+
+    outRadPerSec[0] = x;
+    outRadPerSec[1] = y;
+    outRadPerSec[2] = z;
+    return true;
+}
+
 vr::HmdQuaternion_t PicoOutputAToOpenVrCandidate(
     const vr::HmdQuaternion_t& pico) {
     // Hardware-validated signed-axis mapping for relative orientation tests.
@@ -69,6 +121,7 @@ vr::HmdQuaternion_t PicoOutputAToOpenVrCandidate(
 TrackerDevice::TrackerDevice(std::string serial)
     : serial_(std::move(serial)), pose_(DisconnectedPose()) {
     orientationZeroReference_ = IdentityQuaternion();
+    angularVelocityOrientation_ = IdentityQuaternion();
 }
 
 vr::EVRInitError TrackerDevice::Activate(uint32_t objectId) {
@@ -99,6 +152,10 @@ vr::EVRInitError TrackerDevice::Activate(uint32_t objectId) {
 void TrackerDevice::Deactivate() {
     objectId_ = vr::k_unTrackedDeviceIndexInvalid;
     pose_ = DisconnectedPose();
+    angularVelocityHistoryValid_ = false;
+    angularVelocityRadPerSec_[0] = 0.0;
+    angularVelocityRadPerSec_[1] = 0.0;
+    angularVelocityRadPerSec_[2] = 0.0;
 }
 
 void TrackerDevice::EnterStandby() {}
@@ -121,6 +178,10 @@ vr::DriverPose_t TrackerDevice::GetPose() {
 
 void TrackerDevice::RequestOrientationZero() {
     orientationZeroPending_ = true;
+    angularVelocityHistoryValid_ = false;
+    angularVelocityRadPerSec_[0] = 0.0;
+    angularVelocityRadPerSec_[1] = 0.0;
+    angularVelocityRadPerSec_[2] = 0.0;
     DriverLog("pico_ot_bridge: orientation zero requested for %s",
               serial_.c_str());
 }
@@ -129,6 +190,10 @@ void TrackerDevice::ClearOrientationZero() {
     orientationZeroPending_ = false;
     orientationZeroActive_ = false;
     orientationZeroReference_ = IdentityQuaternion();
+    angularVelocityHistoryValid_ = false;
+    angularVelocityRadPerSec_[0] = 0.0;
+    angularVelocityRadPerSec_[1] = 0.0;
+    angularVelocityRadPerSec_[2] = 0.0;
     DriverLog("pico_ot_bridge: orientation zero cleared for %s",
               serial_.c_str());
 }
@@ -214,10 +279,9 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
                 next.vecPosition[2] = source.positionMeters.z;
             }
 
-            // The position basis and meter scale are hardware-validated, so the
-            // Backend linear velocity can use the same driver-space axes. This
-            // is intentionally the only prediction-related change in this test;
-            // angular velocity remains disabled until its frame is proven.
+            // Hardware validation confirmed that passing this Backend velocity
+            // removes the visible translational lag while preserving direction
+            // and displacement relative to the SteamVR controller.
             next.vecVelocity[0] = source.linearVelocityMetersPerSec.x;
             next.vecVelocity[1] = source.linearVelocityMetersPerSec.y;
             next.vecVelocity[2] = source.linearVelocityMetersPerSec.z;
@@ -262,11 +326,60 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             } else {
                 next.qRotation = correctedOrientation;
             }
-        }
 
-        // Angular velocity intentionally remains zero. The Backend value is
-        // still only characterized as DeviceLocalCandidate, so passing it to
-        // OpenVR before proving that frame could create incorrect prediction.
+            const int64_t poseTimeNs = source.observedMonotonicNs > 0
+                                           ? source.observedMonotonicNs
+                                           : state->lastPoseReceivePcNs;
+            const bool senderChanged =
+                angularVelocityHistoryValid_ &&
+                state->senderSessionId != angularVelocitySenderSessionId_;
+            const bool freshPose =
+                !angularVelocityHistoryValid_ || senderChanged ||
+                state->lastPoseSequence != angularVelocityPoseSequence_;
+
+            if (freshPose) {
+                double derived[3] = {0.0, 0.0, 0.0};
+                bool derivedValid = false;
+                if (angularVelocityHistoryValid_ && !senderChanged &&
+                    poseTimeNs > angularVelocityPoseTimeNs_) {
+                    const double deltaSeconds =
+                        static_cast<double>(poseTimeNs - angularVelocityPoseTimeNs_) /
+                        1.0e9;
+                    derivedValid = DeriveAngularVelocity(
+                        angularVelocityOrientation_,
+                        next.qRotation,
+                        deltaSeconds,
+                        derived);
+                }
+
+                if (derivedValid) {
+                    angularVelocityRadPerSec_[0] = derived[0];
+                    angularVelocityRadPerSec_[1] = derived[1];
+                    angularVelocityRadPerSec_[2] = derived[2];
+                } else {
+                    angularVelocityRadPerSec_[0] = 0.0;
+                    angularVelocityRadPerSec_[1] = 0.0;
+                    angularVelocityRadPerSec_[2] = 0.0;
+                }
+
+                angularVelocitySenderSessionId_ = state->senderSessionId;
+                angularVelocityPoseSequence_ = state->lastPoseSequence;
+                angularVelocityPoseTimeNs_ = poseTimeNs;
+                angularVelocityOrientation_ = next.qRotation;
+                angularVelocityHistoryValid_ = poseTimeNs > 0;
+            }
+
+            if (angularVelocityHistoryValid_) {
+                next.vecAngularVelocity[0] = angularVelocityRadPerSec_[0];
+                next.vecAngularVelocity[1] = angularVelocityRadPerSec_[1];
+                next.vecAngularVelocity[2] = angularVelocityRadPerSec_[2];
+            }
+        } else {
+            angularVelocityHistoryValid_ = false;
+            angularVelocityRadPerSec_[0] = 0.0;
+            angularVelocityRadPerSec_[1] = 0.0;
+            angularVelocityRadPerSec_[2] = 0.0;
+        }
 
         if (state->posePcMonotonicNs.has_value() && nowPcMonotonicNs > 0) {
             const int64_t deltaNs = *state->posePcMonotonicNs - nowPcMonotonicNs;
@@ -275,6 +388,11 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             const double seconds = static_cast<double>(deltaNs) / 1.0e9;
             next.poseTimeOffset = std::clamp(seconds, -0.100, 0.020);
         }
+    } else {
+        angularVelocityHistoryValid_ = false;
+        angularVelocityRadPerSec_[0] = 0.0;
+        angularVelocityRadPerSec_[1] = 0.0;
+        angularVelocityRadPerSec_[2] = 0.0;
     }
 
     pose_ = next;
