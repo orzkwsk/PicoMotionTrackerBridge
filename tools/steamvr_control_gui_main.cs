@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using System.Windows.Forms;
+using System.Windows;
 
 namespace PicoOTBridge
 {
@@ -12,7 +12,7 @@ namespace PicoOTBridge
             try
             {
                 string repoRoot = ResolveRepoRoot(args);
-                SteamVrControlGui.Run(repoRoot);
+                SteamVrControlWpf.Run(repoRoot);
                 return 0;
             }
             catch (Exception ex)
@@ -20,8 +20,8 @@ namespace PicoOTBridge
                 MessageBox.Show(
                     ex.ToString(),
                     "PICO OT SteamVR Control",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
                 return 1;
             }
         }
@@ -44,7 +44,7 @@ namespace PicoOTBridge
             }
 
             string currentDirectory = Environment.CurrentDirectory;
-            if (File.Exists(Path.Combine(currentDirectory, "tools", "steamvr_control_gui.cs")))
+            if (File.Exists(Path.Combine(currentDirectory, "tools", "steamvr_control_wpf.cs")))
             {
                 return currentDirectory;
             }
