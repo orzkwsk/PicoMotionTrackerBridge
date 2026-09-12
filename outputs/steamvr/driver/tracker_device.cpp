@@ -51,6 +51,23 @@ vr::HmdQuaternion_t InverseUnitQuaternion(const vr::HmdQuaternion_t& q) {
     return inverse;
 }
 
+vr::HmdQuaternion_t PicoOutputAToOpenVrCandidate(
+    const vr::HmdQuaternion_t& pico) {
+    // Experimental signed-axis mapping derived from hardware validation:
+    //   raw+zero yaw:               correct
+    //   physical nose-down pitch -> displayed left roll
+    //   physical left roll       -> displayed nose-down pitch
+    // Research handoff also records a non-trivial PICO tracker-local axis
+    // convention. Test this explicit component mapping before treating it as
+    // the final PicoOutputA -> OpenVR orientation conversion.
+    vr::HmdQuaternion_t openVr{};
+    openVr.w = pico.w;
+    openVr.x = -pico.z;
+    openVr.y = pico.y;
+    openVr.z = -pico.x;
+    return openVr;
+}
+
 }  // namespace
 
 TrackerDevice::TrackerDevice(std::string serial)
@@ -162,12 +179,9 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             picoOrientation.y = source.orientationXyzw.y;
             picoOrientation.z = source.orientationXyzw.z;
 
-            // Diagnostic baseline: feed the normalized PICO OutputA quaternion
-            // directly into the orientation-zero path with no speculative mount
-            // or local-basis correction. This lets hardware validation determine
-            // the signed PicoOutputA -> OpenVR orientation mapping from evidence.
             const vr::HmdQuaternion_t correctedOrientation =
-                NormalizeQuaternion(picoOrientation);
+                NormalizeQuaternion(PicoOutputAToOpenVrCandidate(
+                    picoOrientation));
 
             if (orientationZeroPending_) {
                 orientationZeroReference_ = correctedOrientation;
