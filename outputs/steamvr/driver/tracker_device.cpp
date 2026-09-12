@@ -190,9 +190,12 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             }
 
             if (orientationZeroActive_) {
+                // Express the reset delta in OpenVR/world axes so the diagnostic
+                // axis meaning does not rotate with the tracker's orientation at
+                // the instant Zero is captured.
                 next.qRotation = NormalizeQuaternion(MultiplyQuaternion(
-                    InverseUnitQuaternion(orientationZeroReference_),
-                    correctedOrientation));
+                    correctedOrientation,
+                    InverseUnitQuaternion(orientationZeroReference_)));
             } else {
                 next.qRotation = correctedOrientation;
             }
