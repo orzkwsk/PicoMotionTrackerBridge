@@ -37,6 +37,12 @@ public:
     void RequestPositionZero();
     void ClearPositionZero();
 
+    // Common PICO-driver-space -> SteamVR-world translation. Every PICO tracker
+    // receives the same value; per-device mount offsets do not belong here.
+    void SetWorldTranslation(double xMeters,
+                             double yMeters,
+                             double zMeters) noexcept;
+
     void Update(const pico_ot::bridge::ReceivedTrackerState* state,
                 bool stale,
                 int64_t nowPcMonotonicNs);
@@ -55,6 +61,8 @@ private:
     bool positionZeroPending_ = false;
     bool positionZeroActive_ = false;
     double positionZeroReference_[3] = {0.0, 0.0, 0.0};
+
+    double worldTranslationMeters_[3] = {0.0, 0.0, 0.0};
 };
 
 }  // namespace pico_ot::steamvr
