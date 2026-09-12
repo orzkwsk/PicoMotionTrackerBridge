@@ -2,6 +2,7 @@
 
 #include "driver_log.hpp"
 #include "pico_ot_bridge/monotonic_clock.hpp"
+#include "world_alignment_ipc.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -11,6 +12,8 @@
 #endif
 #include <Windows.h>
 
+#include <cmath>
+#include <cstring>
 #include <utility>
 
 namespace pico_ot::steamvr {
@@ -24,6 +27,12 @@ constexpr wchar_t kPositionZeroEventName[] =
     L"Local\\PicoOTBridge_PositionZero";
 constexpr wchar_t kPositionClearEventName[] =
     L"Local\\PicoOTBridge_PositionClear";
+
+bool TranslationIsFinite(const double translation[3]) {
+    return std::isfinite(translation[0]) &&
+           std::isfinite(translation[1]) &&
+           std::isfinite(translation[2]);
+}
 
 }  // namespace
 
@@ -69,10 +78,63 @@ vr::EVRInitError DeviceProvider::Init(vr::IVRDriverContext* driverContext) {
                   static_cast<unsigned long>(GetLastError()));
     }
 
+    worldAlignmentMapping_ = CreateFileMappingW(
+        INVALID_HANDLE_VALUE,
+        nullptr,
+        PAGE_READWRITE,
+        0,
+        static_cast<DWORD>(sizeof(WorldAlignmentSharedState)),
+        kWorldAlignmentMappingName);
+    const DWORD mappingCreateError = GetLastError();
+    if (worldAlignmentMapping_ == nullptr) {
+        DriverLog("pico_ot_bridge: failed to create world-alignment mapping: %lu",
+                  static_cast<unsigned long>(mappingCreateError));
+    } else {
+        worldAlignmentView_ = MapViewOfFile(
+            static_cast<HANDLE>(worldAlignmentMapping_),
+            FILE_MAP_ALL_ACCESS,
+            0,
+            0,
+            sizeof(WorldAlignmentSharedState));
+        if (worldAlignmentView_ == nullptr) {
+            DriverLog("pico_ot_bridge: failed to map world-alignment state: %lu",
+                      static_cast<unsigned long>(GetLastError()));
+        } else {
+            auto* shared =
+                static_cast<WorldAlignmentSharedState*>(worldAlignmentView_);
+            const bool existingMapping =
+                mappingCreateError == ERROR_ALREADY_EXISTS;
+            if (!existingMapping ||
+                shared->magic != kWorldAlignmentMagic ||
+                shared->version != kWorldAlignmentVersion ||
+                !TranslationIsFinite(shared->translationMeters)) {
+                std::memset(shared, 0, sizeof(*shared));
+                shared->magic = kWorldAlignmentMagic;
+                shared->version = kWorldAlignmentVersion;
+            } else {
+                worldTranslationMeters_[0] = shared->translationMeters[0];
+                worldTranslationMeters_[1] = shared->translationMeters[1];
+                worldTranslationMeters_[2] = shared->translationMeters[2];
+            }
+        }
+    }
+
+    worldAlignmentUpdatedEvent_ = CreateEventW(
+        nullptr, FALSE, FALSE, kWorldAlignmentUpdatedEventName);
+    if (worldAlignmentUpdatedEvent_ == nullptr) {
+        DriverLog("pico_ot_bridge: failed to create world-alignment event: %lu",
+                  static_cast<unsigned long>(GetLastError()));
+    }
+
     DriverLog("pico_ot_bridge: SteamVR provider listening on UDP %u",
               receiver_.ListenPort());
     DriverLog("pico_ot_bridge: orientation diagnostics ready (Zero/Clear named events)");
     DriverLog("pico_ot_bridge: position diagnostics ready (Zero/Clear named events)");
+    DriverLog(
+        "pico_ot_bridge: world alignment ready translation=%.6f %.6f %.6f m",
+        worldTranslationMeters_[0],
+        worldTranslationMeters_[1],
+        worldTranslationMeters_[2]);
     return vr::VRInitError_None;
 }
 
@@ -93,9 +155,24 @@ void DeviceProvider::Cleanup() {
         CloseHandle(static_cast<HANDLE>(positionClearEvent_));
         positionClearEvent_ = nullptr;
     }
+    if (worldAlignmentUpdatedEvent_ != nullptr) {
+        CloseHandle(static_cast<HANDLE>(worldAlignmentUpdatedEvent_));
+        worldAlignmentUpdatedEvent_ = nullptr;
+    }
+    if (worldAlignmentView_ != nullptr) {
+        UnmapViewOfFile(worldAlignmentView_);
+        worldAlignmentView_ = nullptr;
+    }
+    if (worldAlignmentMapping_ != nullptr) {
+        CloseHandle(static_cast<HANDLE>(worldAlignmentMapping_));
+        worldAlignmentMapping_ = nullptr;
+    }
 
     diagnosticOrientationZeroEnabled_ = false;
     diagnosticPositionZeroEnabled_ = false;
+    worldTranslationMeters_[0] = 0.0;
+    worldTranslationMeters_[1] = 0.0;
+    worldTranslationMeters_[2] = 0.0;
     devices_.clear();
     receiver_.Stop();
     VR_CLEANUP_SERVER_DRIVER_CONTEXT();
@@ -131,6 +208,11 @@ void DeviceProvider::AddNewTrackers() {
                       serial.c_str());
             continue;
         }
+
+        rawDevice->SetWorldTranslation(
+            worldTranslationMeters_[0],
+            worldTranslationMeters_[1],
+            worldTranslationMeters_[2]);
 
         if (diagnosticOrientationZeroEnabled_) {
             rawDevice->RequestOrientationZero();
@@ -187,6 +269,51 @@ void DeviceProvider::ProcessDiagnosticControls() {
     }
 }
 
+void DeviceProvider::ProcessWorldAlignmentControl() {
+    if (worldAlignmentUpdatedEvent_ == nullptr ||
+        worldAlignmentView_ == nullptr ||
+        WaitForSingleObject(
+            static_cast<HANDLE>(worldAlignmentUpdatedEvent_), 0) != WAIT_OBJECT_0) {
+        return;
+    }
+
+    const auto* shared =
+        static_cast<const WorldAlignmentSharedState*>(worldAlignmentView_);
+    if (shared->magic != kWorldAlignmentMagic ||
+        shared->version != kWorldAlignmentVersion) {
+        DriverLog(
+            "pico_ot_bridge: rejected world alignment ABI magic=%08x version=%u",
+            static_cast<unsigned int>(shared->magic),
+            static_cast<unsigned int>(shared->version));
+        return;
+    }
+    if (!TranslationIsFinite(shared->translationMeters)) {
+        DriverLog("pico_ot_bridge: rejected non-finite world translation");
+        return;
+    }
+
+    worldTranslationMeters_[0] = shared->translationMeters[0];
+    worldTranslationMeters_[1] = shared->translationMeters[1];
+    worldTranslationMeters_[2] = shared->translationMeters[2];
+    ApplyWorldTranslationToDevices();
+
+    DriverLog(
+        "pico_ot_bridge: world translation updated gen=%llu t=%.6f %.6f %.6f m",
+        static_cast<unsigned long long>(shared->generation),
+        worldTranslationMeters_[0],
+        worldTranslationMeters_[1],
+        worldTranslationMeters_[2]);
+}
+
+void DeviceProvider::ApplyWorldTranslationToDevices() {
+    for (auto& entry : devices_) {
+        entry.second->SetWorldTranslation(
+            worldTranslationMeters_[0],
+            worldTranslationMeters_[1],
+            worldTranslationMeters_[2]);
+    }
+}
+
 void DeviceProvider::UpdateTrackers(int64_t nowPcMonotonicNs) {
     for (auto& entry : devices_) {
         const auto* state = receiver_.Find(entry.first);
@@ -209,6 +336,7 @@ void DeviceProvider::RunFrame() {
 
     AddNewTrackers();
     ProcessDiagnosticControls();
+    ProcessWorldAlignmentControl();
     UpdateTrackers(pico_ot::bridge::MonotonicNowNs());
 
     // Drain runtime events so they do not accumulate even though the initial
