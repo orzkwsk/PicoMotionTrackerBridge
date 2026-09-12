@@ -41,6 +41,7 @@ namespace PicoOTBridge
             private const uint AlignmentMagic = 0x504F5441u;
             private const uint AlignmentVersion = 1u;
             private const int AlignmentStateSize = 40;
+            private const double AlignmentCompareEpsilon = 0.0000005;
 
             private readonly string repoRoot;
             private readonly string configDirectory;
@@ -52,6 +53,8 @@ namespace PicoOTBridge
             private ComboBox trackerCombo;
             private ComboBox referenceCombo;
             private TextBox statusBox;
+            private Label unsavedLabel;
+            private AlignmentState savedAlignment;
 
             public ControlForm(string repoRoot)
             {
@@ -62,7 +65,7 @@ namespace PicoOTBridge
                 configPath = Path.Combine(configDirectory, "steamvr_alignment.json");
 
                 Text = "PICO OT SteamVR Control";
-                ClientSize = new Size(650, 535);
+                ClientSize = new Size(650, 555);
                 StartPosition = FormStartPosition.CenterScreen;
                 FormBorderStyle = FormBorderStyle.FixedDialog;
                 MaximizeBox = false;
@@ -101,18 +104,27 @@ namespace PicoOTBridge
                 var saveButton = AddButton("Save", 530, 84, 95);
                 var loadApplyButton = AddButton("Load + Apply", 425, 120, 200);
 
-                AddLabel("Calibration", 20, 174, 120);
-                AddLabel("PICO tracker", 25, 207, 90);
+                unsavedLabel = AddLabel(
+                    "Unsaved changes - current alignment is not saved. Click Save to keep it.",
+                    20,
+                    154,
+                    605);
+                unsavedLabel.AutoSize = false;
+                unsavedLabel.Visible = false;
+                unsavedLabel.Font = new Font(Font, FontStyle.Bold);
+
+                AddLabel("Calibration", 20, 184, 120);
+                AddLabel("PICO tracker", 25, 217, 90);
                 trackerCombo = new ComboBox();
-                trackerCombo.Location = new Point(120, 204);
+                trackerCombo.Location = new Point(120, 214);
                 trackerCombo.Size = new Size(310, 23);
                 trackerCombo.DropDownStyle = ComboBoxStyle.DropDownList;
                 Controls.Add(trackerCombo);
-                var refreshTrackersButton = AddButton("Refresh", 440, 201, 85);
+                var refreshTrackersButton = AddButton("Refresh", 440, 211, 85);
 
-                AddLabel("Reference", 25, 241, 90);
+                AddLabel("Reference", 25, 251, 90);
                 referenceCombo = new ComboBox();
-                referenceCombo.Location = new Point(120, 238);
+                referenceCombo.Location = new Point(120, 248);
                 referenceCombo.Size = new Size(205, 23);
                 referenceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
                 referenceCombo.Items.Add("Right Controller");
@@ -120,22 +132,26 @@ namespace PicoOTBridge
                 referenceCombo.Items.Add("HMD (optional)");
                 referenceCombo.SelectedIndex = 0;
                 Controls.Add(referenceCombo);
-                var calibrateButton = AddButton("Measure Alignment", 340, 234, 185);
+                var calibrateButton = AddButton("Measure + Apply", 340, 244, 185);
 
-                AddLabel("Diagnostics", 20, 296, 120);
-                var orientationZeroButton = AddButton("Orientation Zero", 25, 328, 135);
-                var orientationClearButton = AddButton("Orientation Clear", 170, 328, 135);
-                var positionZeroButton = AddButton("Position Zero", 315, 328, 135);
-                var positionClearButton = AddButton("Position Clear", 460, 328, 135);
+                AddLabel("Diagnostics", 20, 306, 120);
+                var orientationZeroButton = AddButton("Orientation Zero", 25, 338, 135);
+                var orientationClearButton = AddButton("Orientation Clear", 170, 338, 135);
+                var positionZeroButton = AddButton("Position Zero", 315, 338, 135);
+                var positionClearButton = AddButton("Position Clear", 460, 338, 135);
 
-                AddLabel("Status", 20, 380, 100);
+                AddLabel("Status", 20, 390, 100);
                 statusBox = new TextBox();
-                statusBox.Location = new Point(20, 405);
-                statusBox.Size = new Size(605, 100);
+                statusBox.Location = new Point(20, 415);
+                statusBox.Size = new Size(605, 110);
                 statusBox.Multiline = true;
                 statusBox.ReadOnly = true;
                 statusBox.ScrollBars = ScrollBars.Vertical;
                 Controls.Add(statusBox);
+
+                xBox.TextChanged += delegate { UpdateUnsavedIndicator(); };
+                yBox.TextChanged += delegate { UpdateUnsavedIndicator(); };
+                zBox.TextChanged += delegate { UpdateUnsavedIndicator(); };
 
                 xMinusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(xBox, "X", -1); }); };
                 xPlusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(xBox, "X", 1); }); };
@@ -212,6 +228,53 @@ namespace PicoOTBridge
                     throw new InvalidOperationException(name + " must be a number using '.' as the decimal separator.");
                 }
                 return value;
+            }
+
+            private AlignmentState ReadFieldsState()
+            {
+                return new AlignmentState
+                {
+                    X = ParseNumber(xBox.Text, "X"),
+                    Y = ParseNumber(yBox.Text, "Y"),
+                    Z = ParseNumber(zBox.Text, "Z")
+                };
+            }
+
+            private static bool NearlyEqual(double a, double b)
+            {
+                return Math.Abs(a - b) <= AlignmentCompareEpsilon;
+            }
+
+            private void UpdateUnsavedIndicator()
+            {
+                if (unsavedLabel == null)
+                {
+                    return;
+                }
+
+                bool dirty;
+                try
+                {
+                    AlignmentState current = ReadFieldsState();
+                    if (savedAlignment == null)
+                    {
+                        dirty = !NearlyEqual(current.X, 0.0) ||
+                                !NearlyEqual(current.Y, 0.0) ||
+                                !NearlyEqual(current.Z, 0.0);
+                    }
+                    else
+                    {
+                        dirty = !NearlyEqual(current.X, savedAlignment.X) ||
+                                !NearlyEqual(current.Y, savedAlignment.Y) ||
+                                !NearlyEqual(current.Z, savedAlignment.Z);
+                    }
+                }
+                catch
+                {
+                    dirty = true;
+                }
+
+                unsavedLabel.Visible = dirty;
             }
 
             private AlignmentState ReadAlignmentState()
@@ -313,31 +376,32 @@ namespace PicoOTBridge
             {
                 AlignmentState state = ReadAlignmentState();
                 PutStateInFields(state);
+                UpdateUnsavedIndicator();
                 SetStatus("Read current translation. generation=" + state.Generation.ToString(CultureInfo.InvariantCulture));
             }
 
             private void ApplyFields()
             {
-                double x = ParseNumber(xBox.Text, "X");
-                double y = ParseNumber(yBox.Text, "Y");
-                double z = ParseNumber(zBox.Text, "Z");
-                WriteAlignmentTranslation(x, y, z);
-                SetStatus("Applied translation: X=" + FormatNumber(x) + ", Y=" + FormatNumber(y) + ", Z=" + FormatNumber(z) + " m");
+                AlignmentState current = ReadFieldsState();
+                WriteAlignmentTranslation(current.X, current.Y, current.Z);
+                UpdateUnsavedIndicator();
+                SetStatus("Applied translation: X=" + FormatNumber(current.X) + ", Y=" + FormatNumber(current.Y) + ", Z=" + FormatNumber(current.Z) + " m");
             }
 
             private void ResetTranslation()
             {
                 WriteAlignmentTranslation(0.0, 0.0, 0.0);
                 PutStateInFields(new AlignmentState { X = 0.0, Y = 0.0, Z = 0.0 });
+                UpdateUnsavedIndicator();
                 SetStatus("World translation reset to zero.");
             }
 
             private void SaveFields()
             {
-                double x = ParseNumber(xBox.Text, "X");
-                double y = ParseNumber(yBox.Text, "Y");
-                double z = ParseNumber(zBox.Text, "Z");
-                SaveAlignmentConfig(x, y, z);
+                AlignmentState current = ReadFieldsState();
+                SaveAlignmentConfig(current.X, current.Y, current.Z);
+                savedAlignment = new AlignmentState { X = current.X, Y = current.Y, Z = current.Z };
+                UpdateUnsavedIndicator();
                 SetStatus("Saved translation to " + configPath);
             }
 
@@ -348,8 +412,10 @@ namespace PicoOTBridge
                 {
                     throw new InvalidOperationException("No saved alignment exists at " + configPath);
                 }
+                savedAlignment = new AlignmentState { X = state.X, Y = state.Y, Z = state.Z };
                 PutStateInFields(state);
                 WriteAlignmentTranslation(state.X, state.Y, state.Z);
+                UpdateUnsavedIndicator();
                 SetStatus("Loaded and applied saved translation from " + configPath);
             }
 
@@ -496,9 +562,11 @@ namespace PicoOTBridge
 
                 AlignmentState suggested = ParseCalibrationResult(stdout);
                 PutStateInFields(suggested);
+                WriteAlignmentTranslation(suggested.X, suggested.Y, suggested.Z);
+                UpdateUnsavedIndicator();
                 SetStatus(
-                    "Measured alignment loaded into X/Y/Z fields only. Active and saved translations were not changed.\r\n" +
-                    "Review the values, then use Apply and Save explicitly if they are correct.");
+                    "Measured alignment was applied to SteamVR and loaded into X/Y/Z. It has NOT been saved.\r\n" +
+                    "Verify the result, fine-tune if needed, then click Save to keep it.");
             }
 
             private void PutStateInFields(AlignmentState state)
@@ -561,18 +629,24 @@ namespace PicoOTBridge
                     AlignmentState saved = LoadAlignmentConfig();
                     if (saved != null)
                     {
+                        savedAlignment = new AlignmentState { X = saved.X, Y = saved.Y, Z = saved.Z };
                         PutStateInFields(saved);
+                        UpdateUnsavedIndicator();
                         SetStatus("Loaded saved values into the fields. Click 'Load + Apply' to use them.");
                     }
                     else
                     {
+                        savedAlignment = null;
                         PutStateInFields(new AlignmentState { X = 0.0, Y = 0.0, Z = 0.0 });
+                        UpdateUnsavedIndicator();
                         SetStatus("No saved alignment yet.");
                     }
                 }
                 catch (Exception ex)
                 {
+                    savedAlignment = null;
                     PutStateInFields(new AlignmentState { X = 0.0, Y = 0.0, Z = 0.0 });
+                    UpdateUnsavedIndicator();
                     SetStatus("Saved alignment could not be read: " + ex.Message);
                 }
             }
