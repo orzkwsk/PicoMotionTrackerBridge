@@ -51,13 +51,11 @@ vr::HmdQuaternion_t InverseUnitQuaternion(const vr::HmdQuaternion_t& q) {
     return inverse;
 }
 
-vr::HmdQuaternion_t PicoOutputAToOpenVrOrientation(
+vr::HmdQuaternion_t PicoOutputAToOpenVrCandidate(
     const vr::HmdQuaternion_t& pico) {
-    // Hardware-validated relative orientation mapping for PICO OutputA ->
-    // OpenVR tracker axes. With orientation zero captured in multiple initial
-    // tracker orientations, physical pitch/roll/yaw axes and directions all
-    // remained stable and matched OpenVR after this component remap.
-    // Absolute world orientation/alignment remains a separate calibration step.
+    // Hardware-validated signed-axis mapping for relative orientation tests.
+    // This remains intentionally explicit here until the complete absolute
+    // PICO OutputA -> OpenVR world transform is calibrated.
     vr::HmdQuaternion_t openVr{};
     openVr.w = pico.w;
     openVr.x = -pico.z;
@@ -135,6 +133,22 @@ void TrackerDevice::ClearOrientationZero() {
               serial_.c_str());
 }
 
+void TrackerDevice::RequestPositionZero() {
+    positionZeroPending_ = true;
+    DriverLog("pico_ot_bridge: position zero requested for %s",
+              serial_.c_str());
+}
+
+void TrackerDevice::ClearPositionZero() {
+    positionZeroPending_ = false;
+    positionZeroActive_ = false;
+    positionZeroReference_[0] = 0.0;
+    positionZeroReference_[1] = 0.0;
+    positionZeroReference_[2] = 0.0;
+    DriverLog("pico_ot_bridge: position zero cleared for %s",
+              serial_.c_str());
+}
+
 vr::DriverPose_t TrackerDevice::DisconnectedPose() {
     vr::DriverPose_t pose{};
     pose.qWorldFromDriverRotation = IdentityQuaternion();
@@ -163,11 +177,34 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
                           : vr::TrackingResult_Running_OutOfRange;
 
         if (source.positionValid) {
-            // Position bring-up currently indicates matching axis directions
-            // and scale. World-origin alignment is still intentionally separate.
-            next.vecPosition[0] = source.positionMeters.x;
-            next.vecPosition[1] = source.positionMeters.y;
-            next.vecPosition[2] = source.positionMeters.z;
+            if (positionZeroPending_) {
+                positionZeroReference_[0] = source.positionMeters.x;
+                positionZeroReference_[1] = source.positionMeters.y;
+                positionZeroReference_[2] = source.positionMeters.z;
+                positionZeroActive_ = true;
+                positionZeroPending_ = false;
+                DriverLog(
+                    "pico_ot_bridge: position zero captured for %s at %.6f %.6f %.6f m",
+                    serial_.c_str(),
+                    positionZeroReference_[0],
+                    positionZeroReference_[1],
+                    positionZeroReference_[2]);
+            }
+
+            if (positionZeroActive_) {
+                next.vecPosition[0] =
+                    source.positionMeters.x - positionZeroReference_[0];
+                next.vecPosition[1] =
+                    source.positionMeters.y - positionZeroReference_[1];
+                next.vecPosition[2] =
+                    source.positionMeters.z - positionZeroReference_[2];
+            } else {
+                // Position bring-up currently indicates matching axis directions
+                // and scale. World-origin alignment remains intentionally separate.
+                next.vecPosition[0] = source.positionMeters.x;
+                next.vecPosition[1] = source.positionMeters.y;
+                next.vecPosition[2] = source.positionMeters.z;
+            }
         }
 
         if (source.orientationSamplePresent) {
@@ -178,7 +215,7 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             picoOrientation.z = source.orientationXyzw.z;
 
             const vr::HmdQuaternion_t correctedOrientation =
-                NormalizeQuaternion(PicoOutputAToOpenVrOrientation(
+                NormalizeQuaternion(PicoOutputAToOpenVrCandidate(
                     picoOrientation));
 
             if (orientationZeroPending_) {
@@ -192,8 +229,7 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             if (orientationZeroActive_) {
                 // Express the reset delta in OpenVR/world axes so the diagnostic
                 // axis meaning does not rotate with the tracker's orientation at
-                // the instant Zero is captured. Hardware validation confirmed this
-                // remains stable across multiple initial tracker orientations.
+                // the instant Zero is captured.
                 next.qRotation = NormalizeQuaternion(MultiplyQuaternion(
                     correctedOrientation,
                     InverseUnitQuaternion(orientationZeroReference_)));
