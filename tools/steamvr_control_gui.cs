@@ -41,6 +41,8 @@ namespace PicoOTBridge
             private const uint AlignmentMagic = 0x504F5441u;
             private const uint AlignmentVersion = 1u;
             private const int AlignmentStateSize = 40;
+            private const double FineIncrementMeters = 0.001;
+            private const double CoarseIncrementMeters = 0.010;
 
             private readonly string repoRoot;
             private readonly string configDirectory;
@@ -62,7 +64,7 @@ namespace PicoOTBridge
                 configPath = Path.Combine(configDirectory, "steamvr_alignment.json");
 
                 Text = "PICO OT SteamVR Control";
-                ClientSize = new Size(560, 485);
+                ClientSize = new Size(720, 500);
                 StartPosition = FormStartPosition.CenterScreen;
                 FormBorderStyle = FormBorderStyle.FixedDialog;
                 MaximizeBox = false;
@@ -74,48 +76,67 @@ namespace PicoOTBridge
 
             private void BuildUi()
             {
-                AddLabel("World translation (meters)", 20, 18, 220);
+                AddLabel("World translation (m)", 20, 18, 180);
+                AddLabel("Increment: 1 mm  (Shift + click = 10 mm)", 230, 18, 280);
+
                 AddLabel("X", 25, 52, 25);
                 AddLabel("Y", 25, 82, 25);
                 AddLabel("Z", 25, 112, 25);
-                xBox = AddTextBox(55, 49, 150);
-                yBox = AddTextBox(55, 79, 150);
-                zBox = AddTextBox(55, 109, 150);
+                xBox = AddTextBox(55, 49, 135);
+                yBox = AddTextBox(55, 79, 135);
+                zBox = AddTextBox(55, 109, 135);
+                AddLabel("m", 198, 52, 20);
+                AddLabel("m", 198, 82, 20);
+                AddLabel("m", 198, 112, 20);
 
-                var readButton = AddButton("Read current", 230, 48, 100);
-                var applyButton = AddButton("Apply", 340, 48, 90);
-                var resetButton = AddButton("Reset", 440, 48, 90);
-                var saveButton = AddButton("Save", 230, 88, 100);
-                var loadApplyButton = AddButton("Load + Apply", 340, 88, 190);
+                var xMinusButton = AddButton("-1 mm", 230, 46, 75);
+                var xPlusButton = AddButton("+1 mm", 312, 46, 75);
+                var yMinusButton = AddButton("-1 mm", 230, 76, 75);
+                var yPlusButton = AddButton("+1 mm", 312, 76, 75);
+                var zMinusButton = AddButton("-1 mm", 230, 106, 75);
+                var zPlusButton = AddButton("+1 mm", 312, 106, 75);
 
-                AddLabel("Calibration", 20, 160, 120);
-                AddLabel("Tracker serial", 25, 194, 90);
-                serialBox = AddTextBox(120, 191, 260);
-                AddLabel("Controller", 25, 226, 90);
+                var readButton = AddButton("Read current", 415, 46, 95);
+                var applyButton = AddButton("Apply", 518, 46, 80);
+                var resetButton = AddButton("Reset", 606, 46, 80);
+                var saveButton = AddButton("Save", 415, 86, 95);
+                var loadApplyButton = AddButton("Load + Apply", 518, 86, 168);
+
+                AddLabel("Calibration", 20, 165, 120);
+                AddLabel("Tracker serial", 25, 199, 90);
+                serialBox = AddTextBox(120, 196, 300);
+                AddLabel("Controller", 25, 231, 90);
                 controllerCombo = new ComboBox();
-                controllerCombo.Location = new Point(120, 223);
+                controllerCombo.Location = new Point(120, 228);
                 controllerCombo.Size = new Size(120, 23);
                 controllerCombo.DropDownStyle = ComboBoxStyle.DropDownList;
                 controllerCombo.Items.Add("Right");
                 controllerCombo.Items.Add("Left");
                 controllerCombo.SelectedIndex = 0;
                 Controls.Add(controllerCombo);
-                var calibrateButton = AddButton("Calibrate", 260, 219, 120);
+                var calibrateButton = AddButton("Align to Controller", 260, 224, 160);
 
-                AddLabel("Diagnostics", 20, 275, 120);
-                var orientationZeroButton = AddButton("Orientation Zero", 25, 307, 120);
-                var orientationClearButton = AddButton("Orientation Clear", 155, 307, 120);
-                var positionZeroButton = AddButton("Position Zero", 285, 307, 120);
-                var positionClearButton = AddButton("Position Clear", 415, 307, 120);
+                AddLabel("Diagnostics", 20, 280, 120);
+                var orientationZeroButton = AddButton("Orientation Zero", 25, 312, 140);
+                var orientationClearButton = AddButton("Orientation Clear", 175, 312, 140);
+                var positionZeroButton = AddButton("Position Zero", 325, 312, 140);
+                var positionClearButton = AddButton("Position Clear", 475, 312, 140);
 
-                AddLabel("Status", 20, 355, 100);
+                AddLabel("Status", 20, 360, 100);
                 statusBox = new TextBox();
-                statusBox.Location = new Point(20, 380);
-                statusBox.Size = new Size(515, 80);
+                statusBox.Location = new Point(20, 385);
+                statusBox.Size = new Size(680, 90);
                 statusBox.Multiline = true;
                 statusBox.ReadOnly = true;
                 statusBox.ScrollBars = ScrollBars.Vertical;
                 Controls.Add(statusBox);
+
+                xMinusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(xBox, "X", -1.0); }); };
+                xPlusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(xBox, "X", +1.0); }); };
+                yMinusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(yBox, "Y", -1.0); }); };
+                yPlusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(yBox, "Y", +1.0); }); };
+                zMinusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(zBox, "Z", -1.0); }); };
+                zPlusButton.Click += delegate { RunUiAction("Adjust failed", delegate { NudgeAxis(zBox, "Z", +1.0); }); };
 
                 readButton.Click += delegate { RunUiAction("Read failed", ReadCurrent); };
                 applyButton.Click += delegate { RunUiAction("Apply failed", ApplyFields); };
@@ -184,6 +205,22 @@ namespace PicoOTBridge
                     throw new InvalidOperationException(name + " must be a number using '.' as the decimal separator.");
                 }
                 return value;
+            }
+
+            private void NudgeAxis(TextBox axisBox, string axisName, double direction)
+            {
+                double step = (ModifierKeys & Keys.Shift) == Keys.Shift
+                    ? CoarseIncrementMeters
+                    : FineIncrementMeters;
+                double current = ParseNumber(axisBox.Text, axisName);
+                double next = current + (direction * step);
+                axisBox.Text = FormatNumber(next);
+                ApplyFields();
+
+                int stepMillimeters = (int)Math.Round(step * 1000.0);
+                string sign = direction > 0.0 ? "+" : "-";
+                SetStatus(axisName + " adjusted " + sign + stepMillimeters.ToString(CultureInfo.InvariantCulture) +
+                    " mm and applied. Current " + axisName + "=" + FormatNumber(next) + " m");
             }
 
             private AlignmentState ReadAlignmentState()
@@ -343,7 +380,7 @@ namespace PicoOTBridge
                 psi.RedirectStandardError = true;
                 psi.CreateNoWindow = true;
 
-                SetStatus("Calibrating... keep the tracker and controller reference points together and still.");
+                SetStatus("Aligning... keep the tracker and controller reference points together and still.");
                 Refresh();
 
                 string stdout;
