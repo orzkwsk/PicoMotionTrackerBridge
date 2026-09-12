@@ -213,6 +213,14 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
                 next.vecPosition[1] = source.positionMeters.y;
                 next.vecPosition[2] = source.positionMeters.z;
             }
+
+            // The position basis and meter scale are hardware-validated, so the
+            // Backend linear velocity can use the same driver-space axes. This
+            // is intentionally the only prediction-related change in this test;
+            // angular velocity remains disabled until its frame is proven.
+            next.vecVelocity[0] = source.linearVelocityMetersPerSec.x;
+            next.vecVelocity[1] = source.linearVelocityMetersPerSec.y;
+            next.vecVelocity[2] = source.linearVelocityMetersPerSec.z;
         }
 
         // Position Zero is a pure relative-motion diagnostic. Suppress the
@@ -256,9 +264,9 @@ void TrackerDevice::Update(const pico_ot::bridge::ReceivedTrackerState* state,
             }
         }
 
-        // Velocity fields intentionally remain zero for initial bring-up.
-        // The PICO/OpenVR basis is not calibrated yet, and angular velocity is
-        // only proven to be a device/local-frame candidate.
+        // Angular velocity intentionally remains zero. The Backend value is
+        // still only characterized as DeviceLocalCandidate, so passing it to
+        // OpenVR before proving that frame could create incorrect prediction.
 
         if (state->posePcMonotonicNs.has_value() && nowPcMonotonicNs > 0) {
             const int64_t deltaNs = *state->posePcMonotonicNs - nowPcMonotonicNs;
