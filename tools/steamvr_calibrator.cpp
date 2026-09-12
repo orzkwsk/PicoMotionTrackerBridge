@@ -34,6 +34,7 @@ struct Options {
     bool list = false;
     bool listTrackers = false;
     bool clear = false;
+    bool measureOnly = false;
     std::string trackerSerial;
     ReferenceKind reference = ReferenceKind::None;
     int samples = 120;
@@ -66,11 +67,12 @@ void PrintUsage() {
         << "  pico_ot_steamvr_calibrator --list-trackers\n"
         << "  pico_ot_steamvr_calibrator --clear\n"
         << "  pico_ot_steamvr_calibrator --tracker <serial> --reference <left|right|hmd>\n"
-        << "      [--samples <count>] [--interval-ms <milliseconds>]\n\n"
+        << "      [--measure-only] [--samples <count>] [--interval-ms <milliseconds>]\n\n"
         << "Backward compatibility:\n"
         << "  --controller <left|right> is accepted as an alias for --reference.\n\n"
         << "Calibration assumes the selected reference device and PICO tracker pose\n"
-        << "reference points are held at the same physical point while sampling.\n";
+        << "reference points are held at the same physical point while sampling.\n"
+        << "--measure-only calculates the suggested translation without applying it.\n";
 }
 
 bool ParsePositiveInt(const char* text, int& value) {
@@ -111,6 +113,8 @@ bool ParseArgs(int argc, char** argv, Options& options) {
             options.listTrackers = true;
         } else if (arg == "--clear") {
             options.clear = true;
+        } else if (arg == "--measure-only") {
+            options.measureOnly = true;
         } else if (arg == "--tracker") {
             if (i + 1 >= argc) {
                 return false;
@@ -156,6 +160,9 @@ bool ParseArgs(int argc, char** argv, Options& options) {
         return false;
     }
     if (!options.trackerSerial.empty() && options.reference == ReferenceKind::None) {
+        return false;
+    }
+    if (options.measureOnly && options.trackerSerial.empty()) {
         return false;
     }
     return true;
@@ -453,7 +460,14 @@ int RunCalibration(vr::IVRSystem* system,
               << "Measured delta: (" << meanDelta[0] << ", "
               << meanDelta[1] << ", " << meanDelta[2] << ") m\n"
               << "Updated t: (" << updatedTranslation[0] << ", "
-              << updatedTranslation[1] << ", " << updatedTranslation[2] << ") m\n";
+              << updatedTranslation[1] << ", " << updatedTranslation[2] << ") m\n"
+              << "CALIBRATION_RESULT " << updatedTranslation[0] << ' '
+              << updatedTranslation[1] << ' ' << updatedTranslation[2] << '\n';
+
+    if (options.measureOnly) {
+        std::cout << "Measurement only; world translation was not changed.\n";
+        return 0;
+    }
 
     std::string error;
     if (!WriteTranslation(ipc, updatedTranslation, error)) {
