@@ -23,11 +23,18 @@ public:
 
 private:
     void AddNewTrackers();
+    void ProcessDiagnosticControls();
     void UpdateTrackers(int64_t nowPcMonotonicNs);
 
     pico_ot::bridge::Receiver receiver_;
     std::unordered_map<std::string, std::unique_ptr<TrackerDevice>> devices_;
     bool receiverErrorLogged_ = false;
+
+    // Win32 named-event handles stored as opaque pointers to avoid leaking
+    // Windows headers into the public driver header.
+    void* orientationZeroEvent_ = nullptr;
+    void* orientationClearEvent_ = nullptr;
+    bool diagnosticOrientationZeroEnabled_ = false;
 };
 
 }  // namespace pico_ot::steamvr
