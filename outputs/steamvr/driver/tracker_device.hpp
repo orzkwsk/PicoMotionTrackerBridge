@@ -43,12 +43,18 @@ public:
                              double yMeters,
                              double zMeters) noexcept;
 
+    // Switch between the visible PICO-like model and a microscopic hidden
+    // render model. Keeping a valid render-model property avoids SteamVR's
+    // generic-tracker fallback when the user hides the custom model.
+    void SetRenderModelVisible(bool visible);
+
     void Update(const pico_ot::bridge::ReceivedTrackerState* state,
                 bool stale,
                 int64_t nowPcMonotonicNs);
 
 private:
     static vr::DriverPose_t DisconnectedPose();
+    void ApplyRenderModelProperty();
 
     std::string serial_;
     vr::TrackedDeviceIndex_t objectId_ = vr::k_unTrackedDeviceIndexInvalid;
@@ -63,6 +69,7 @@ private:
     double positionZeroReference_[3] = {0.0, 0.0, 0.0};
 
     double worldTranslationMeters_[3] = {0.0, 0.0, 0.0};
+    bool renderModelVisible_ = true;
 
     // Experimental OpenVR angular prediction state. This is derived from the
     // already-corrected/output quaternion rather than the Backend's provisional
