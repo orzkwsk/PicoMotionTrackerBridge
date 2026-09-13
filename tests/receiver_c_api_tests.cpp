@@ -98,7 +98,7 @@ void TestPoseAndDeviceStateRoundTrip() {
     device.runtimeDeviceId = pose.runtimeDeviceId;
     device.connected = true;
     device.charging = true;
-    device.batteryBucketRaw = 3;
+    device.batteryBucketRaw = static_cast<uint8_t>(3);
     device.observedMonotonicNs = pico_ot::bridge::MonotonicNowNs();
     assert(publisher.SendDeviceState(device, &error));
     PumpPair(receiver, publisher, 3);
