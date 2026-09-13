@@ -35,12 +35,19 @@ target_compile_features(pico_ot_bridge_publisher PUBLIC cxx_std_17)
 target_include_directories(pico_ot_bridge_publisher PUBLIC "${PICO_OT_ROOT}/include")
 target_link_libraries(pico_ot_bridge_publisher PUBLIC pico_ot_bridge_transport)
 
+add_executable(pico_ot_bridge_monaka_smoke_publisher
+    "${PICO_OT_ROOT}/tools/monaka_smoke_publisher.cpp")
+target_compile_features(pico_ot_bridge_monaka_smoke_publisher PRIVATE cxx_std_17)
+target_include_directories(pico_ot_bridge_monaka_smoke_publisher PRIVATE "${PICO_OT_ROOT}/include")
+target_link_libraries(pico_ot_bridge_monaka_smoke_publisher PRIVATE pico_ot_bridge_publisher)
+
 if(MSVC)
     foreach(target IN ITEMS
             pico_ot_bridge_core
             pico_ot_bridge_transport
             pico_ot_bridge_capi
-            pico_ot_bridge_publisher)
+            pico_ot_bridge_publisher
+            pico_ot_bridge_monaka_smoke_publisher)
         target_compile_options(${target} PRIVATE /W4 /permissive-)
     endforeach()
     target_link_libraries(pico_ot_bridge_transport PRIVATE ws2_32)
@@ -49,7 +56,8 @@ else()
             pico_ot_bridge_core
             pico_ot_bridge_transport
             pico_ot_bridge_capi
-            pico_ot_bridge_publisher)
+            pico_ot_bridge_publisher
+            pico_ot_bridge_monaka_smoke_publisher)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endforeach()
 endif()
