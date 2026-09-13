@@ -1,5 +1,6 @@
 #pragma once
 
+#include "output_route_ipc.hpp"
 #include "pico_ot_bridge/receiver.hpp"
 #include "tracker_device.hpp"
 
@@ -25,15 +26,22 @@ private:
     void AddNewTrackers();
     void ProcessDiagnosticControls();
     void ProcessWorldAlignmentControl();
+    void ProcessOutputRouteControl(int64_t nowPcMonotonicNs);
+    void EnsureReceiverRunning(int64_t nowPcMonotonicNs);
+    void SetOutputRoute(OutputRoute route, int64_t nowPcMonotonicNs);
     void ApplyWorldTranslationToDevices();
     void UpdateTrackers(int64_t nowPcMonotonicNs);
 
     pico_ot::bridge::Receiver receiver_;
+    pico_ot::bridge::ReceiverConfig receiverConfig_{};
     std::unordered_map<std::string, std::unique_ptr<TrackerDevice>> devices_;
     bool receiverErrorLogged_ = false;
+    int64_t nextReceiverStartAttemptNs_ = 0;
+    OutputRoute outputRoute_ = OutputRoute::SteamVrDirect;
 
     // Win32 named-event handles stored as opaque pointers to avoid leaking
     // Windows headers into the public driver header.
+    void* outputRouteUpdatedEvent_ = nullptr;
     void* orientationZeroEvent_ = nullptr;
     void* orientationClearEvent_ = nullptr;
     void* positionZeroEvent_ = nullptr;

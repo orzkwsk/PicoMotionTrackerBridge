@@ -4,11 +4,12 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $GuiSource = Join-Path $RepoRoot "tools\steamvr_control_wpf.cs"
+$GuiTraySource = Join-Path $RepoRoot "tools\steamvr_control_tray.cs"
 $GuiMainSource = Join-Path $RepoRoot "tools\steamvr_control_gui_main.cs"
 $BuildDir = Join-Path $RepoRoot "build-gui"
 $GuiExe = Join-Path $BuildDir "pico_ot_steamvr_control.exe"
 
-foreach ($path in @($GuiSource, $GuiMainSource)) {
+foreach ($path in @($GuiSource, $GuiTraySource, $GuiMainSource)) {
     if (-not (Test-Path $path)) {
         throw "SteamVR control GUI source was not found: $path"
     }
@@ -116,7 +117,7 @@ $WpfRefs = Get-WpfReferenceSet
 $needsBuild = -not (Test-Path $GuiExe)
 if (-not $needsBuild) {
     $exeTime = (Get-Item $GuiExe).LastWriteTimeUtc
-    foreach ($source in @($GuiSource, $GuiMainSource, $PSCommandPath)) {
+    foreach ($source in @($GuiSource, $GuiTraySource, $GuiMainSource, $PSCommandPath)) {
         if ((Get-Item $source).LastWriteTimeUtc -gt $exeTime) {
             $needsBuild = $true
             break
@@ -136,11 +137,14 @@ if ($needsBuild) {
         "/out:$GuiExe",
         "/reference:System.dll",
         "/reference:System.Core.dll",
+        "/reference:System.Drawing.dll",
+        "/reference:System.Windows.Forms.dll",
         "/reference:$($WpfRefs.WindowsBase)",
         "/reference:$($WpfRefs.PresentationCore)",
         "/reference:$($WpfRefs.PresentationFramework)",
         "/reference:$($WpfRefs.SystemXaml)",
         $GuiSource,
+        $GuiTraySource,
         $GuiMainSource
     )
 
@@ -151,5 +155,5 @@ if ($needsBuild) {
     }
 }
 
-Write-Host "WPF GUI: $GuiExe"
+Write-Host "WPF GUI/tray: $GuiExe"
 Start-Process -FilePath $GuiExe -ArgumentList @($RepoRoot)
