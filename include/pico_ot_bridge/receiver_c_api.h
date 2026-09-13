@@ -16,6 +16,7 @@
 extern "C" {
 #endif
 
+#define PICO_OT_BRIDGE_C_API_VERSION 1u
 #define PICO_OT_BRIDGE_SERIAL_CAPACITY 32
 #define PICO_OT_BRIDGE_ERROR_CAPACITY 256
 
@@ -78,6 +79,11 @@ typedef struct pico_ot_bridge_clock_estimate {
     int64_t hmd_minus_pc_ns;
     int64_t network_round_trip_ns;
 } pico_ot_bridge_clock_estimate_t;
+
+PICO_OT_BRIDGE_API uint32_t pico_ot_bridge_c_api_version(void);
+PICO_OT_BRIDGE_API uint32_t pico_ot_bridge_receiver_config_size(void);
+PICO_OT_BRIDGE_API uint32_t pico_ot_bridge_tracker_state_size(void);
+PICO_OT_BRIDGE_API uint32_t pico_ot_bridge_clock_estimate_size(void);
 
 PICO_OT_BRIDGE_API void pico_ot_bridge_receiver_default_config(
     pico_ot_bridge_receiver_config_t* config);
