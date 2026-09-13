@@ -20,6 +20,11 @@ extern "C" {
 #define PICO_OT_BRIDGE_SERIAL_CAPACITY 32
 #define PICO_OT_BRIDGE_ERROR_CAPACITY 256
 
+#define PICO_OT_BRIDGE_HMD_INGRESS_PORT 29765u
+#define PICO_OT_BRIDGE_STEAMVR_FANOUT_PORT 29766u
+#define PICO_OT_BRIDGE_MONAKA_FANOUT_PORT 29767u
+#define PICO_OT_BRIDGE_UTILITY_FANOUT_PORT 29768u
+
 typedef struct pico_ot_bridge_receiver pico_ot_bridge_receiver_t;
 
 typedef enum pico_ot_bridge_status_code {
@@ -85,6 +90,8 @@ PICO_OT_BRIDGE_API uint32_t pico_ot_bridge_receiver_config_size(void);
 PICO_OT_BRIDGE_API uint32_t pico_ot_bridge_tracker_state_size(void);
 PICO_OT_BRIDGE_API uint32_t pico_ot_bridge_clock_estimate_size(void);
 
+// Default receiver is the Monaka fan-out endpoint. Utility should call this
+// and then override listen_port with PICO_OT_BRIDGE_UTILITY_FANOUT_PORT.
 PICO_OT_BRIDGE_API void pico_ot_bridge_receiver_default_config(
     pico_ot_bridge_receiver_config_t* config);
 
