@@ -43,7 +43,9 @@ int main(int argc, char** argv) {
     pose.mappedMonotonicNs = pose.observedMonotonicNs;
     pose.mappedMonotonicValid = true;
     pose.positionMeters = {1.25, 2.5, -3.75};
-    pose.orientationXyzw = {0.0, 0.0, 0.0, 1.0};
+    // +90 degrees around native PICO OutputA X. This intentionally remains non-identity
+    // so Monaka's production composition smoke test exercises the OutputA -> room mapper.
+    pose.orientationXyzw = {0.7071067811865476, 0.0, 0.0, 0.7071067811865476};
     pose.linearVelocityMetersPerSec = {0.1, 0.2, 0.3};
     pose.angularVelocityRadPerSec = {0.4, 0.5, 0.6};
     pose.frame = pico_ot::ReferenceFrame::PicoOutputA;
