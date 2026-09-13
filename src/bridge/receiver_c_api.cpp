@@ -46,6 +46,22 @@ void ClearError(pico_ot_bridge_receiver_t* receiver) {
 
 extern "C" {
 
+uint32_t pico_ot_bridge_c_api_version(void) {
+    return PICO_OT_BRIDGE_C_API_VERSION;
+}
+
+uint32_t pico_ot_bridge_receiver_config_size(void) {
+    return static_cast<uint32_t>(sizeof(pico_ot_bridge_receiver_config_t));
+}
+
+uint32_t pico_ot_bridge_tracker_state_size(void) {
+    return static_cast<uint32_t>(sizeof(pico_ot_bridge_tracker_state_t));
+}
+
+uint32_t pico_ot_bridge_clock_estimate_size(void) {
+    return static_cast<uint32_t>(sizeof(pico_ot_bridge_clock_estimate_t));
+}
+
 void pico_ot_bridge_receiver_default_config(
     pico_ot_bridge_receiver_config_t* config) {
     if (config == nullptr) {
