@@ -404,9 +404,11 @@ int main() {
 
     OutputSink steamVr{"SteamVR", pico_ot::bridge::kSteamVrFanoutPort};
     OutputSink monaka{"MonakaVR", pico_ot::bridge::kMonakaFanoutPort};
-    if (!StartSink(steamVr) || !StartSink(monaka)) {
+    OutputSink utility{"Utility", pico_ot::bridge::kUtilityFanoutPort};
+    if (!StartSink(steamVr) || !StartSink(monaka) || !StartSink(utility)) {
         receiver.Stop();
         CloseHandle(routeUpdatedEvent);
+        ReleaseMutex(instanceMutex);
         CloseHandle(instanceMutex);
         return 5;
     }
@@ -415,6 +417,8 @@ int main() {
     std::cout << "PICO OT Bridge Service listening for HMD on UDP "
               << receiver.ListenPort() << '\n';
     std::cout << "Output route: " << RouteName(route) << '\n';
+    std::cout << "Utility fan-out remains active on UDP "
+              << pico_ot::bridge::kUtilityFanoutPort << " regardless of output route.\n";
 
     int64_t nextRoutePollNs = 0;
     int64_t nextStatusPublishNs = 0;
@@ -453,8 +457,10 @@ int main() {
 
         PumpSinkControl(steamVr);
         PumpSinkControl(monaka);
+        PumpSinkControl(utility);
         ForwardLatest(receiver, steamVr, RouteIncludesSteamVr(route));
         ForwardLatest(receiver, monaka, RouteIncludesMonaka(route));
+        ForwardLatest(receiver, utility, true);
 
         if (nowNs >= nextStatusPublishNs) {
             PublishStatus(status, route, receiver);
@@ -466,6 +472,7 @@ int main() {
 
     steamVr.publisher.Stop();
     monaka.publisher.Stop();
+    utility.publisher.Stop();
     receiver.Stop();
     CloseHandle(routeUpdatedEvent);
     ReleaseMutex(instanceMutex);

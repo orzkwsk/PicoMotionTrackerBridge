@@ -1,7 +1,7 @@
 # Output routing through PC Bridge Service
 
 The PC Bridge Service is the only Windows-side consumer of the HMD UDP stream.
-SteamVR and MonakaVR no longer compete for the same socket.
+SteamVR, MonakaVR, and Utility no longer compete for the same socket.
 
 ## Ports
 
@@ -12,13 +12,14 @@ PICO HMD publisher
 PC Bridge Service
     -> SteamVR local fan-out UDP 29766
     -> MonakaVR local fan-out UDP 29767
+    -> Utility local fan-out UDP 29768
 ```
 
-`29765` is therefore reserved for the HMD -> PC ingress path. Output consumers bind only their dedicated loopback fan-out ports.
+`29765` is reserved for HMD -> PC ingress. Output consumers bind only their dedicated loopback fan-out ports.
 
 ## Output modes
 
-The Bridge Service supports four output policies:
+The Bridge Service supports four user-facing output policies:
 
 ```text
 SteamVR
@@ -27,11 +28,15 @@ Both
 Disabled
 ```
 
-`Both` sends the same normalized latest-state stream to both local consumers. `Disabled` keeps the HMD ingress and service cache alive but stops pose/device-state forwarding to both outputs.
+These modes control only SteamVR and MonakaVR forwarding.
+
+The Utility fan-out on `29768` remains active in every mode, including `Disabled`, so detailed monitoring and advanced operations can stay available without exposing that information in the Bridge GUI.
+
+`Both` sends the same normalized latest-state stream to SteamVR and MonakaVR simultaneously. `Disabled` keeps HMD ingress, the service cache, status IPC, and Utility feed alive while suppressing game/runtime outputs.
 
 The SteamVR driver stays loaded and keeps its local receiver on `29766`. If SteamVR output is disabled, its last tracker states naturally become stale and are submitted as disconnected/invalid. Existing Generic Tracker device objects remain registered until `vrserver` restarts, as required by OpenVR's server-driver lifetime model.
 
-The Monaka receiver C API defaults to local UDP `29767`.
+The Monaka receiver C API defaults to local UDP `29767`. A future Utility receiver should explicitly bind `29768`.
 
 ## Persistence and runtime control
 
@@ -68,7 +73,7 @@ The service publishes a small local shared-memory status block:
 Local\PicoOTBridge_ServiceStatus
 ```
 
-It contains the applied output route, current tracker count, active HMD sender session, and a monotonic update timestamp. The tray uses this only for a compact applied/requested indication; detailed tracker diagnostics remain the responsibility of the future Utility.
+It contains the applied output route, current tracker count, active HMD sender session, and a monotonic update timestamp. The tray uses this only for a compact applied/requested indication; detailed tracker diagnostics remain the responsibility of Utility.
 
 ## GUI boundary
 
@@ -83,7 +88,7 @@ Detailed per-tracker state, raw diagnostics, battery interpretation, pose age, p
 
 ## Startup
 
-`Start_All.cmd` now performs runtime preparation before starting the backend:
+`Start_All.cmd` performs runtime preparation before starting the backend:
 
 1. verify/build the current SteamVR driver when necessary;
 2. register the driver for first-run use;
