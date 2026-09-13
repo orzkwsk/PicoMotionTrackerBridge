@@ -3,6 +3,7 @@
 #include "pico_ot_bridge/receiver.hpp"
 
 #include <cstring>
+#include <limits>
 #include <new>
 #include <string>
 #include <vector>
@@ -125,14 +126,20 @@ uint64_t pico_ot_bridge_receiver_active_sender_session_id(
     return receiver != nullptr ? receiver->receiver.ActiveSenderSessionId() : 0u;
 }
 
-size_t pico_ot_bridge_receiver_tracker_count(
+uint32_t pico_ot_bridge_receiver_tracker_count(
     pico_ot_bridge_receiver_t* receiver) {
-    return receiver != nullptr ? receiver->receiver.Serials().size() : 0u;
+    if (receiver == nullptr) {
+        return 0u;
+    }
+    const size_t count = receiver->receiver.Serials().size();
+    return count > std::numeric_limits<uint32_t>::max()
+               ? std::numeric_limits<uint32_t>::max()
+               : static_cast<uint32_t>(count);
 }
 
 pico_ot_bridge_status_code_t pico_ot_bridge_receiver_get_tracker(
     pico_ot_bridge_receiver_t* receiver,
-    size_t index,
+    uint32_t index,
     pico_ot_bridge_tracker_state_t* out) {
     if (receiver == nullptr || out == nullptr) {
         return SetError(receiver, PICO_OT_BRIDGE_INVALID_ARGUMENT, "receiver and output are required");
@@ -142,7 +149,7 @@ pico_ot_bridge_status_code_t pico_ot_bridge_receiver_get_tracker(
     }
 
     const std::vector<std::string> serials = receiver->receiver.Serials();
-    if (index >= serials.size()) {
+    if (static_cast<size_t>(index) >= serials.size()) {
         return SetError(receiver, PICO_OT_BRIDGE_OUT_OF_RANGE, "tracker index is out of range");
     }
 
