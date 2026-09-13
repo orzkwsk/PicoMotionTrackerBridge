@@ -12,7 +12,16 @@ namespace PicoOTBridge
             try
             {
                 string repoRoot = ResolveRepoRoot(args);
-                SteamVrControlWpf.Run(repoRoot);
+                if (HasSwitch(args, "--control-window-only"))
+                {
+                    SteamVrControlWpf.Run(repoRoot);
+                    return 0;
+                }
+
+                using (var tray = new SteamVrControlTray(repoRoot))
+                {
+                    tray.Run();
+                }
                 return 0;
             }
             catch (Exception ex)
@@ -26,11 +35,35 @@ namespace PicoOTBridge
             }
         }
 
+        private static bool HasSwitch(string[] args, string value)
+        {
+            if (args == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < args.Length; ++i)
+            {
+                if (string.Equals(args[i], value, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private static string ResolveRepoRoot(string[] args)
         {
-            if (args != null && args.Length > 0 && !string.IsNullOrWhiteSpace(args[0]))
+            if (args != null)
             {
-                return Path.GetFullPath(args[0]);
+                for (int i = 0; i < args.Length; ++i)
+                {
+                    string arg = args[i];
+                    if (!string.IsNullOrWhiteSpace(arg) && !arg.StartsWith("--", StringComparison.Ordinal))
+                    {
+                        return Path.GetFullPath(arg);
+                    }
+                }
             }
 
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
