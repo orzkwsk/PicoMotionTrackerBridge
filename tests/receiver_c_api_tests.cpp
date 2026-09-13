@@ -1,6 +1,7 @@
 #include "pico_ot_bridge/monotonic_clock.hpp"
 #include "pico_ot_bridge/publisher.hpp"
 #include "pico_ot_bridge/receiver_c_api.h"
+#include "pico_ot_bridge/service_contract.hpp"
 
 #include <cassert>
 #include <chrono>
@@ -126,7 +127,7 @@ void TestPoseAndDeviceStateRoundTrip() {
 void TestInvalidArguments() {
     pico_ot_bridge_receiver_config_t config{};
     pico_ot_bridge_receiver_default_config(&config);
-    assert(config.listen_port == 29765);
+    assert(config.listen_port == pico_ot::bridge::kMonakaFanoutPort);
     assert(config.time_sync_interval_ns > 0);
     assert(config.stale_timeout_ns > 0);
 

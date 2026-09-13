@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.IO.MemoryMappedFiles;
 using System.Text;
 using System.Threading;
 using Forms = System.Windows.Forms;
@@ -11,8 +12,15 @@ namespace PicoOTBridge
     internal sealed class SteamVrControlTray : IDisposable
     {
         private const string OutputRouteUpdatedEventName = @"Local\PicoOTBridge_OutputRouteUpdated";
-        private const string SteamVrDirectValue = "steamvr-direct";
-        private const string ExternalValue = "monaka-external";
+        private const string ServiceStatusMappingName = @"Local\PicoOTBridge_ServiceStatus";
+        private const uint ServiceStatusMagic = 0x53544250u;
+        private const uint ServiceStatusVersion = 1u;
+        private const long ServiceStatusSize = 40;
+
+        private const string SteamVrValue = "steamvr";
+        private const string MonakaValue = "monaka";
+        private const string BothValue = "both";
+        private const string DisabledValue = "disabled";
 
         private readonly string repoRoot;
         private readonly string configDirectory;
@@ -20,15 +28,19 @@ namespace PicoOTBridge
         private readonly Forms.ApplicationContext context;
         private readonly Forms.NotifyIcon notifyIcon;
         private readonly Forms.ToolStripMenuItem statusItem;
-        private readonly Forms.ToolStripMenuItem directItem;
-        private readonly Forms.ToolStripMenuItem externalItem;
+        private readonly Forms.ToolStripMenuItem steamVrItem;
+        private readonly Forms.ToolStripMenuItem monakaItem;
+        private readonly Forms.ToolStripMenuItem bothItem;
+        private readonly Forms.ToolStripMenuItem disabledItem;
         private Process controlProcess;
         private bool disposed;
 
         private enum OutputRoute
         {
-            SteamVrDirect,
-            External
+            SteamVr = 0,
+            Monaka = 1,
+            Both = 2,
+            Disabled = 3
         }
 
         public SteamVrControlTray(string repoRoot)
@@ -46,13 +58,20 @@ namespace PicoOTBridge
             menu.Items.Add(statusItem);
             menu.Items.Add(new Forms.ToolStripSeparator());
 
-            var routeMenu = new Forms.ToolStripMenuItem("Output route");
-            directItem = new Forms.ToolStripMenuItem("SteamVR Direct");
-            externalItem = new Forms.ToolStripMenuItem("MonakaVR / External");
-            directItem.Click += delegate { SetRoute(OutputRoute.SteamVrDirect); };
-            externalItem.Click += delegate { SetRoute(OutputRoute.External); };
-            routeMenu.DropDownItems.Add(directItem);
-            routeMenu.DropDownItems.Add(externalItem);
+            var routeMenu = new Forms.ToolStripMenuItem("Output");
+            steamVrItem = new Forms.ToolStripMenuItem("SteamVR");
+            monakaItem = new Forms.ToolStripMenuItem("MonakaVR");
+            bothItem = new Forms.ToolStripMenuItem("Both");
+            disabledItem = new Forms.ToolStripMenuItem("Disabled");
+            steamVrItem.Click += delegate { SetRoute(OutputRoute.SteamVr); };
+            monakaItem.Click += delegate { SetRoute(OutputRoute.Monaka); };
+            bothItem.Click += delegate { SetRoute(OutputRoute.Both); };
+            disabledItem.Click += delegate { SetRoute(OutputRoute.Disabled); };
+            routeMenu.DropDownItems.Add(steamVrItem);
+            routeMenu.DropDownItems.Add(monakaItem);
+            routeMenu.DropDownItems.Add(bothItem);
+            routeMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+            routeMenu.DropDownItems.Add(disabledItem);
             menu.Items.Add(routeMenu);
 
             menu.Items.Add(new Forms.ToolStripSeparator());
@@ -79,38 +98,58 @@ namespace PicoOTBridge
             Forms.Application.Run(context);
         }
 
-        private OutputRoute LoadRoute()
+        private OutputRoute LoadRequestedRoute()
         {
             try
             {
                 if (!File.Exists(routePath))
                 {
-                    return OutputRoute.SteamVrDirect;
+                    return OutputRoute.SteamVr;
                 }
 
                 string value = File.ReadAllText(routePath, Encoding.UTF8).Trim();
-                if (string.Equals(value, ExternalValue, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(value, "external", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(value, "monaka", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(value, MonakaValue, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(value, "monaka-external", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(value, "external", StringComparison.OrdinalIgnoreCase))
                 {
-                    return OutputRoute.External;
+                    return OutputRoute.Monaka;
+                }
+                if (string.Equals(value, BothValue, StringComparison.OrdinalIgnoreCase))
+                {
+                    return OutputRoute.Both;
+                }
+                if (string.Equals(value, DisabledValue, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(value, "off", StringComparison.OrdinalIgnoreCase))
+                {
+                    return OutputRoute.Disabled;
                 }
             }
             catch
             {
-                // Preserve the backward-compatible direct route when the persisted
-                // preference cannot be read.
             }
 
-            return OutputRoute.SteamVrDirect;
+            return OutputRoute.SteamVr;
         }
 
         private void SaveRoute(OutputRoute route)
         {
             Directory.CreateDirectory(configDirectory);
-            string value = route == OutputRoute.SteamVrDirect
-                ? SteamVrDirectValue
-                : ExternalValue;
+            string value;
+            switch (route)
+            {
+                case OutputRoute.Monaka:
+                    value = MonakaValue;
+                    break;
+                case OutputRoute.Both:
+                    value = BothValue;
+                    break;
+                case OutputRoute.Disabled:
+                    value = DisabledValue;
+                    break;
+                default:
+                    value = SteamVrValue;
+                    break;
+            }
             File.WriteAllText(routePath, value + Environment.NewLine, new UTF8Encoding(false));
         }
 
@@ -119,13 +158,12 @@ namespace PicoOTBridge
             try
             {
                 SaveRoute(route);
-                bool signaled = SignalDriverRouteUpdate();
+                bool signaled = SignalServiceRouteUpdate();
                 RefreshRouteUi();
 
-                string routeName = RouteName(route);
                 string detail = signaled
-                    ? routeName + " requested."
-                    : routeName + " saved; it will be used the next time the SteamVR driver starts.";
+                    ? RouteName(route) + " requested."
+                    : RouteName(route) + " saved; it will be applied when the PC Bridge Service starts.";
                 notifyIcon.ShowBalloonTip(
                     2500,
                     "PICO Motion Tracker Bridge",
@@ -144,12 +182,20 @@ namespace PicoOTBridge
 
         private static string RouteName(OutputRoute route)
         {
-            return route == OutputRoute.SteamVrDirect
-                ? "SteamVR Direct"
-                : "MonakaVR / External";
+            switch (route)
+            {
+                case OutputRoute.Monaka:
+                    return "MonakaVR";
+                case OutputRoute.Both:
+                    return "Both";
+                case OutputRoute.Disabled:
+                    return "Disabled";
+                default:
+                    return "SteamVR";
+            }
         }
 
-        private bool SignalDriverRouteUpdate()
+        private bool SignalServiceRouteUpdate()
         {
             try
             {
@@ -164,12 +210,70 @@ namespace PicoOTBridge
             }
         }
 
+        private bool TryReadServiceStatus(out OutputRoute route, out uint trackerCount)
+        {
+            route = OutputRoute.SteamVr;
+            trackerCount = 0;
+            try
+            {
+                using (var mapping = MemoryMappedFile.OpenExisting(
+                    ServiceStatusMappingName,
+                    MemoryMappedFileRights.Read))
+                using (var view = mapping.CreateViewAccessor(
+                    0,
+                    ServiceStatusSize,
+                    MemoryMappedFileAccess.Read))
+                {
+                    uint magic = view.ReadUInt32(0);
+                    uint version = view.ReadUInt32(4);
+                    if (magic != ServiceStatusMagic || version != ServiceStatusVersion)
+                    {
+                        return false;
+                    }
+
+                    uint routeRaw = view.ReadUInt32(16);
+                    if (routeRaw > (uint)OutputRoute.Disabled)
+                    {
+                        return false;
+                    }
+                    route = (OutputRoute)routeRaw;
+                    trackerCount = view.ReadUInt32(20);
+                    return true;
+                }
+            }
+            catch (FileNotFoundException)
+            {
+                return false;
+            }
+        }
+
         private void RefreshRouteUi()
         {
-            OutputRoute route = LoadRoute();
-            directItem.Checked = route == OutputRoute.SteamVrDirect;
-            externalItem.Checked = route == OutputRoute.External;
-            statusItem.Text = "Route: " + RouteName(route);
+            OutputRoute requested = LoadRequestedRoute();
+            steamVrItem.Checked = requested == OutputRoute.SteamVr;
+            monakaItem.Checked = requested == OutputRoute.Monaka;
+            bothItem.Checked = requested == OutputRoute.Both;
+            disabledItem.Checked = requested == OutputRoute.Disabled;
+
+            OutputRoute applied;
+            uint trackerCount;
+            if (TryReadServiceStatus(out applied, out trackerCount))
+            {
+                if (applied == requested)
+                {
+                    statusItem.Text = "Output: " + RouteName(applied) +
+                                      " | " + trackerCount.ToString() + " tracker(s)";
+                }
+                else
+                {
+                    statusItem.Text = "Requested: " + RouteName(requested) +
+                                      " | Applied: " + RouteName(applied);
+                }
+            }
+            else
+            {
+                statusItem.Text = "Bridge Service: offline | requested: " + RouteName(requested);
+            }
         }
 
         private void OpenControlWindow()

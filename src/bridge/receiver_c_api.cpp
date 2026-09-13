@@ -1,6 +1,7 @@
 #include "pico_ot_bridge/receiver_c_api.h"
 
 #include "pico_ot_bridge/receiver.hpp"
+#include "pico_ot_bridge/service_contract.hpp"
 
 #include <cstring>
 #include <limits>
@@ -67,7 +68,7 @@ void pico_ot_bridge_receiver_default_config(
     if (config == nullptr) {
         return;
     }
-    config->listen_port = 29765;
+    config->listen_port = pico_ot::bridge::kMonakaFanoutPort;
     config->time_sync_interval_ns = 1'000'000'000LL;
     config->stale_timeout_ns = 500'000'000LL;
     config->client_session_id = 0;
