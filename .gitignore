@@ -1,6 +1,8 @@
 build/
 build-android/
 build-gui/
+build-monaka-receiver-capi/
+build-bridge-host/
 .idea/
 .vscode/
 *.iml
