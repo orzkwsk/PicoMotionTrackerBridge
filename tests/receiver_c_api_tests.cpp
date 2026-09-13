@@ -43,6 +43,13 @@ void PumpPair(
     }
 }
 
+void TestAbiMetadata() {
+    assert(pico_ot_bridge_c_api_version() == PICO_OT_BRIDGE_C_API_VERSION);
+    assert(pico_ot_bridge_receiver_config_size() == sizeof(pico_ot_bridge_receiver_config_t));
+    assert(pico_ot_bridge_tracker_state_size() == sizeof(pico_ot_bridge_tracker_state_t));
+    assert(pico_ot_bridge_clock_estimate_size() == sizeof(pico_ot_bridge_clock_estimate_t));
+}
+
 void TestPoseAndDeviceStateRoundTrip() {
     pico_ot_bridge_receiver_t* receiver = pico_ot_bridge_receiver_create();
     assert(receiver != nullptr);
@@ -132,6 +139,7 @@ void TestInvalidArguments() {
 }  // namespace
 
 int main() {
+    TestAbiMetadata();
     TestPoseAndDeviceStateRoundTrip();
     TestInvalidArguments();
     return 0;
