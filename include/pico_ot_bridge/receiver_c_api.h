@@ -1,6 +1,5 @@
 #pragma once
 
-#include <stddef.h>
 #include <stdint.h>
 
 #ifdef _WIN32
@@ -102,11 +101,11 @@ PICO_OT_BRIDGE_API uint16_t pico_ot_bridge_receiver_listen_port(
 PICO_OT_BRIDGE_API uint64_t pico_ot_bridge_receiver_active_sender_session_id(
     const pico_ot_bridge_receiver_t* receiver);
 
-PICO_OT_BRIDGE_API size_t pico_ot_bridge_receiver_tracker_count(
+PICO_OT_BRIDGE_API uint32_t pico_ot_bridge_receiver_tracker_count(
     pico_ot_bridge_receiver_t* receiver);
 PICO_OT_BRIDGE_API pico_ot_bridge_status_code_t pico_ot_bridge_receiver_get_tracker(
     pico_ot_bridge_receiver_t* receiver,
-    size_t index,
+    uint32_t index,
     pico_ot_bridge_tracker_state_t* out);
 
 PICO_OT_BRIDGE_API uint8_t pico_ot_bridge_receiver_get_clock_estimate(
