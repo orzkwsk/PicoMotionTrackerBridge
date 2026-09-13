@@ -333,8 +333,15 @@ void ListDevices(vr::IVRSystem* system) {
 }
 
 void ListPicoTrackers(vr::IVRSystem* system) {
+    vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount]{};
+    system->GetDeviceToAbsoluteTrackingPose(
+        vr::TrackingUniverseStanding,
+        0.0F,
+        poses,
+        vr::k_unMaxTrackedDeviceCount);
+
     for (vr::TrackedDeviceIndex_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i) {
-        if (!IsPicoBridgeTracker(system, i)) {
+        if (!IsPicoBridgeTracker(system, i) || !poses[i].bDeviceIsConnected) {
             continue;
         }
         const std::string serial = GetDeviceSerial(system, i);
