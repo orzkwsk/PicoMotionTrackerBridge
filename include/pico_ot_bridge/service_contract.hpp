@@ -7,6 +7,7 @@ namespace pico_ot::bridge {
 constexpr uint16_t kHmdIngressPort = 29765;
 constexpr uint16_t kSteamVrFanoutPort = 29766;
 constexpr uint16_t kMonakaFanoutPort = 29767;
+constexpr uint16_t kUtilityFanoutPort = 29768;
 
 constexpr uint32_t kBridgeServiceStatusMagic = 0x53544250u;  // "PBTS"
 constexpr uint32_t kBridgeServiceStatusVersion = 1u;
