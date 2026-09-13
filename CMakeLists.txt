@@ -79,11 +79,8 @@ else()
     target_compile_options(pico_ot_bridge_transport PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# HMD publisher consumes only the normalized Backend *types* declared in public
-# headers. It must not link against the Backend binary itself. The Android app
-# that owns both components links PicoOT::Backend and PicoOT::BridgePublisher
-# independently. This keeps host-side bridge tests free of the private runtime
-# DLL/import-library contract.
+# Publisher consumes only normalized Backend types. The Android sender and the
+# PC Bridge Service both reuse this transport layer.
 add_library(pico_ot_bridge_publisher STATIC
     src/bridge/publisher.cpp)
 add_library(PicoOT::BridgePublisher ALIAS pico_ot_bridge_publisher)
@@ -108,6 +105,15 @@ if(NOT ANDROID)
         target_compile_options(pico_ot_bridge_receiver_cli PRIVATE /W4 /permissive-)
     else()
         target_compile_options(pico_ot_bridge_receiver_cli PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    if(WIN32)
+        add_executable(pico_ot_bridge_service
+            tools/pc_bridge_service.cpp)
+        target_compile_features(pico_ot_bridge_service PRIVATE cxx_std_17)
+        target_link_libraries(pico_ot_bridge_service PRIVATE
+            PicoOT::BridgePublisher PicoOT::BridgeTransport)
+        target_compile_options(pico_ot_bridge_service PRIVATE /W4 /permissive-)
     endif()
 endif()
 

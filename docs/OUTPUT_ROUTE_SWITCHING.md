@@ -1,87 +1,94 @@
-# Output route switching
+# Output routing through PC Bridge Service
 
-This document defines the Windows-side route switch between the native SteamVR direct output and an external consumer such as MonakaVR.
+The PC Bridge Service is the only Windows-side consumer of the HMD UDP stream.
+SteamVR and MonakaVR no longer compete for the same socket.
 
-## Why a route switch is required
-
-The SteamVR server driver and the Monaka receiver C API both consume the same PICO bridge UDP stream on port `29765`.
-
-Only one receiver can own that port at a time. The route switch therefore controls receiver ownership rather than merely hiding SteamVR devices in the GUI.
-
-## Routes
-
-### SteamVR Direct
+## Ports
 
 ```text
-PICO HMD Backend / publisher
-    -> UDP 29765
-    -> native SteamVR server driver
-    -> Generic Tracker devices
+PICO HMD publisher
+    -> PC Bridge Service UDP 29765
+
+PC Bridge Service
+    -> SteamVR local fan-out UDP 29766
+    -> MonakaVR local fan-out UDP 29767
 ```
 
-The SteamVR driver owns UDP `29765` and publishes the tracker state directly to SteamVR.
+`29765` is therefore reserved for the HMD -> PC ingress path. Output consumers bind only their dedicated loopback fan-out ports.
 
-### MonakaVR / External
+## Output modes
+
+The Bridge Service supports four output policies:
 
 ```text
-PICO HMD Backend / publisher
-    -> UDP 29765
-    -> MonakaVR / external receiver
+SteamVR
+MonakaVR
+Both
+Disabled
 ```
 
-The SteamVR driver stops its receiver and releases UDP `29765`. Existing SteamVR Generic Tracker device objects remain registered for the lifetime of `vrserver`, but their poses become disconnected/invalid while this route is selected.
+`Both` sends the same normalized latest-state stream to both local consumers. `Disabled` keeps the HMD ingress and service cache alive but stops pose/device-state forwarding to both outputs.
 
-The external consumer is then free to bind the bridge port. The existing Monaka receiver C API is the intended first consumer.
+The SteamVR driver stays loaded and keeps its local receiver on `29766`. If SteamVR output is disabled, its last tracker states naturally become stale and are submitted as disconnected/invalid. Existing Generic Tracker device objects remain registered until `vrserver` restarts, as required by OpenVR's server-driver lifetime model.
+
+The Monaka receiver C API defaults to local UDP `29767`.
 
 ## Persistence and runtime control
 
-The selected route is persisted in:
+The requested output mode is persisted in:
 
 ```text
 %LOCALAPPDATA%\PicoMotionTrackerBridge\output_route.txt
 ```
 
-Supported values:
+Current values:
 
 ```text
-steamvr-direct
-monaka-external
+steamvr
+monaka
+both
+disabled
 ```
 
-If the file is missing, unreadable, or contains an unknown value, the driver defaults to `steamvr-direct` for backward compatibility.
+Legacy values `steamvr-direct` and `monaka-external` are still accepted during migration.
 
-The tray host signals a named event after changing the persisted route:
+The tray signals:
 
 ```text
 Local\PicoOTBridge_OutputRouteUpdated
 ```
 
-The SteamVR driver reloads the route when it receives this event.
+The PC Bridge Service owns that event and reloads the requested route. It also polls the persisted route periodically so a missed event does not leave the service permanently out of sync.
 
-## Switching back to SteamVR Direct
+## Applied status
 
-If the external receiver still owns UDP `29765`, the SteamVR driver stays loaded and retries the bind periodically instead of failing the whole driver initialization. The current retry interval is approximately one second.
-
-For a deterministic handover, stop/release the external receiver before selecting `SteamVR Direct`.
-
-## GUI/tray behavior
-
-`scripts/steamvr_control_gui.ps1` builds one Windows executable containing:
-
-- a persistent notification-area/tray host;
-- the existing WPF SteamVR control window.
-
-Normal launch starts the tray host and opens the control window once. Closing the control window does not stop the tray host. The window can be reopened from the tray icon or by double-clicking the icon.
-
-Tray output-route choices:
+The service publishes a small local shared-memory status block:
 
 ```text
-SteamVR Direct
-MonakaVR / External
+Local\PicoOTBridge_ServiceStatus
 ```
 
-The existing WPF alignment/calibration/diagnostic functionality is unchanged and remains a separate window.
+It contains the applied output route, current tracker count, active HMD sender session, and a monotonic update timestamp. The tray uses this only for a compact applied/requested indication; detailed tracker diagnostics remain the responsibility of the future Utility.
 
-## Scope
+## GUI boundary
 
-This route switch does not modify the validated PICO Backend contract, packet protocol, tracker identity, pose validity semantics, or Monaka receiver C API. It only selects which Windows-side receiver owns the PICO UDP stream.
+The Bridge GUI remains intentionally small. It is for:
+
+- output selection;
+- world translation/alignment;
+- calibration;
+- orientation/position zero diagnostics.
+
+Detailed per-tracker state, raw diagnostics, battery interpretation, pose age, packet sequencing, and advanced backend operations belong in Utility rather than the Bridge GUI.
+
+## Startup
+
+`Start_All.cmd` now performs runtime preparation before starting the backend:
+
+1. verify/build the current SteamVR driver when necessary;
+2. register the driver for first-run use;
+3. verify/build and start the PC Bridge Service;
+4. start the PICO Backend app;
+5. start the tray/WPF control UI.
+
+If the SteamVR driver binary needs replacement while `vrserver.exe` is running, startup stops with an explicit request to exit SteamVR instead of attempting to overwrite a loaded DLL.

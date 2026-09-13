@@ -42,8 +42,16 @@ if (-not $ReceiverCli) {
     throw "pico_ot_bridge_receiver_cli.exe was not found after build."
 }
 
+$BridgeService = Get-ChildItem -Path $BuildDir -Filter "pico_ot_bridge_service.exe" -Recurse -ErrorAction SilentlyContinue |
+    Select-Object -First 1 -ExpandProperty FullName
+if (-not $BridgeService) {
+    throw "pico_ot_bridge_service.exe was not found after build."
+}
+
 Write-Host ""
 Write-Host "Bridge host build/tests complete."
 Write-Host "Receiver CLI: $ReceiverCli"
-Write-Host "Run it with:"
-Write-Host ('& "{0}" 29765' -f $ReceiverCli)
+Write-Host "PC Bridge Service: $BridgeService"
+Write-Host "HMD ingress port: 29765"
+Write-Host "SteamVR fan-out port: 29766"
+Write-Host "Monaka fan-out port: 29767"
