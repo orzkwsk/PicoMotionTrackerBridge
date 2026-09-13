@@ -41,6 +41,13 @@ if (-not $library) {
     throw "pico_ot_bridge_capi.dll was not found after build."
 }
 
+$smokePublisher = Get-ChildItem -Path $BuildDir -Filter "pico_ot_bridge_monaka_smoke_publisher.exe" -Recurse |
+    Select-Object -First 1 -ExpandProperty FullName
+if (-not $smokePublisher) {
+    throw "pico_ot_bridge_monaka_smoke_publisher.exe was not found after build."
+}
+
 Write-Host ""
 Write-Host "Monaka receiver C API build/tests complete." -ForegroundColor Green
 Write-Host "Native library: $library"
+Write-Host "Smoke publisher: $smokePublisher"
