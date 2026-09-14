@@ -1,0 +1,11 @@
+{
+  "openvr": {
+    "repository": "https://github.com/ValveSoftware/openvr",
+    "tag": "v2.15.6",
+    "verified_revision": "0924064316de3effbcd1acf1e309182a2deb1c05",
+    "included_in_extraction": false
+  },
+  "windows": {"compiler": "MSVC 19.51.36257.0", "cmake": "4.3.1-msvc1", "sdk": "10.0.26100.0"},
+  "android": {"unity": "2022.3.22f1", "ndk": "23.1.7779620", "clang": "12.0.8", "gradle": "7.2", "agp": "7.1.2", "compile_sdk": 32, "build_tools": "32.0.0", "abi": "arm64-v8a"},
+  "gui": {"requirement": ".NET Framework 4.8 Developer Pack / WPF / OS csc.exe", "runtime_validation": "NOT RUN"}
+}
