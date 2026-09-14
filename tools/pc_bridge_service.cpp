@@ -2,6 +2,8 @@
 #include "pico_ot_bridge/publisher.hpp"
 #include "pico_ot_bridge/receiver.hpp"
 #include "pico_ot_bridge/service_contract.hpp"
+#include "pico_ot_backend/observation_identity.hpp"
+#include "pico_ot_backend/observation_publisher.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -18,6 +20,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -356,7 +359,27 @@ void PublishStatus(StatusMapping& status,
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    uint16_t observationPort = 29810;
+    std::filesystem::path identityPath;
+    try {
+        for (int i=1;i<argc;++i) {
+            const std::string option=argv[i];
+            if (option=="--help") {
+                std::cout << "PICO PC service [--observation-port PORT] [--observation-config PATH]\n";
+                return 0;
+            }
+            if (i+1>=argc) throw std::invalid_argument("missing option value");
+            const std::string value=argv[++i];
+            if (option=="--observation-port") {
+                if (value.empty() || value.find_first_not_of("0123456789")!=std::string::npos) throw std::invalid_argument("invalid port");
+                const auto port=std::stoul(value);
+                if (port==0 || port>65535 || (port>=29765 && port<=29768)) throw std::invalid_argument("invalid/reserved Observation port");
+                observationPort=static_cast<uint16_t>(port);
+            } else if (option=="--observation-config") identityPath=std::filesystem::u8path(value);
+            else throw std::invalid_argument("unknown option");
+        }
+    } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
     HANDLE instanceMutex = CreateMutexW(
         nullptr,
         TRUE,
@@ -392,6 +415,8 @@ int main() {
     receiverConfig.listenPort = pico_ot::bridge::kHmdIngressPort;
     receiverConfig.timeSyncIntervalNs = 1'000'000'000LL;
     receiverConfig.staleTimeoutNs = 500'000'000LL;
+    receiverConfig.exclusiveBind = true;
+    receiverConfig.rejectRetiredSessions = true;
 
     std::string error;
     if (!receiver.Start(receiverConfig, &error)) {
@@ -414,6 +439,34 @@ int main() {
     }
 
     ServiceOutputRoute route = LoadRouteFromDisk();
+    // Failure in the new candidate provider must not take down legacy outputs.
+    std::unique_ptr<pico_ot::ObservationIdentity> observationIdentity;
+    std::unique_ptr<pico_ot::PicoObservationAdapter> observationAdapter;
+    pico_ot::ObservationPublisher observationPublisher;
+    try {
+        if (identityPath.empty()) {
+            wchar_t local[32768]{};
+            const auto length=GetEnvironmentVariableW(L"LOCALAPPDATA",local,32768);
+            if (length==0 || length>=32768) throw std::runtime_error("LOCALAPPDATA unavailable");
+            identityPath=std::filesystem::path(local)/L"PicoMotionTrackerBridge"/L"observation-provider.conf";
+        }
+        observationIdentity=std::make_unique<pico_ot::ObservationIdentity>(identityPath);
+        pico_ot::ObservationConfig config;
+        config.sourceId=observationIdentity->SourceId(); config.spaceId=observationIdentity->SpaceId();
+        config.spaceRevision=observationIdentity->Revision();
+        config.clockEpochPcNs=pico_ot::bridge::MonotonicNowNs();
+        config.newUuid=pico_ot::NewObservationUuid;
+        config.nextSpaceRevision=[&] { return observationIdentity->AdvanceRevision(); };
+        observationAdapter=std::make_unique<pico_ot::PicoObservationAdapter>(std::move(config));
+        if (!observationPublisher.Start(observationPort,&error)) throw std::runtime_error(error);
+        std::cout << "C1 Observation -> 127.0.0.1:" << observationPort
+                  << " source=" << observationIdentity->SourceId()
+                  << " space=" << observationIdentity->SpaceId()
+                  << " revision=" << observationIdentity->Revision() << '\n';
+    } catch (const std::exception& e) {
+        observationAdapter.reset();
+        std::cerr << "C1 provider disabled; legacy outputs continue: " << e.what() << '\n';
+    }
     std::cout << "PICO OT Bridge Service listening for HMD on UDP "
               << receiver.ListenPort() << '\n';
     std::cout << "Output route: " << RouteName(route) << '\n';
@@ -461,6 +514,14 @@ int main() {
         ForwardLatest(receiver, steamVr, RouteIncludesSteamVr(route));
         ForwardLatest(receiver, monaka, RouteIncludesMonaka(route));
         ForwardLatest(receiver, utility, true);
+        if (observationAdapter) {
+            try {
+                observationPublisher.Publish(*observationAdapter,receiver,pico_ot::bridge::MonotonicNowNs());
+            } catch (const std::exception& e) {
+                observationAdapter.reset();
+                std::cerr << "C1 provider disabled; legacy outputs continue: " << e.what() << '\n';
+            }
+        }
 
         if (nowNs >= nextStatusPublishNs) {
             PublishStatus(status, route, receiver);
@@ -471,6 +532,8 @@ int main() {
     }
 
     steamVr.publisher.Stop();
+    std::cout << "C1 datagrams sent=" << observationPublisher.Sent()
+              << " errors=" << observationPublisher.Errors() << '\n';
     monaka.publisher.Stop();
     utility.publisher.Stop();
     receiver.Stop();

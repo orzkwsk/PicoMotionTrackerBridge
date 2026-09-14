@@ -97,6 +97,20 @@ else()
 endif()
 
 if(NOT ANDROID)
+    # Task 1's verified kit is a PC-only dependency. Never add JSON to the HMD NDK ABI.
+    add_subdirectory(third_party/monaka-protocol/cpp EXCLUDE_FROM_ALL)
+    add_library(pico_observation_provider STATIC
+        src/observation/observation_adapter.cpp
+        src/observation/observation_publisher.cpp
+        src/observation/observation_identity.cpp)
+    target_compile_features(pico_observation_provider PUBLIC cxx_std_17)
+    target_include_directories(pico_observation_provider PUBLIC include)
+    target_link_libraries(pico_observation_provider PUBLIC PicoOT::BridgeTransport MonakaProtocol::Codec)
+    if(MSVC)
+        target_compile_options(pico_observation_provider PRIVATE /W4 /permissive- /utf-8)
+    else()
+        target_compile_options(pico_observation_provider PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
     add_executable(pico_ot_bridge_receiver_cli
         tools/bridge_receiver_cli.cpp)
     target_compile_features(pico_ot_bridge_receiver_cli PRIVATE cxx_std_17)
@@ -112,7 +126,7 @@ if(NOT ANDROID)
             tools/pc_bridge_service.cpp)
         target_compile_features(pico_ot_bridge_service PRIVATE cxx_std_17)
         target_link_libraries(pico_ot_bridge_service PRIVATE
-            PicoOT::BridgePublisher PicoOT::BridgeTransport)
+            PicoOT::BridgePublisher PicoOT::BridgeTransport pico_observation_provider)
         target_compile_options(pico_ot_bridge_service PRIVATE /W4 /permissive-)
     endif()
 endif()
@@ -187,6 +201,14 @@ endif()
 
 if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     enable_testing()
+    add_executable(pico_observation_tests tests/observation_tests.cpp)
+    target_link_libraries(pico_observation_tests PRIVATE pico_observation_provider PicoOT::BridgePublisher)
+    add_test(NAME pico_observation_tests COMMAND pico_observation_tests)
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_FOUND)
+        add_test(NAME monaka_protocol_kit_integrity
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/import_protocol_kit.py --verify)
+    endif()
 
     add_executable(pico_ot_backend_tests
         tests/decoder_tests.cpp

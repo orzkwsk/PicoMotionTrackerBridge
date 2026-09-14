@@ -31,7 +31,7 @@ bool Receiver::Start(const ReceiverConfig& config, std::string* error) {
         return false;
     }
 
-    if (!socket_.Open(config.listenPort, true, error)) {
+    if (!socket_.Open(config.listenPort, true, error, config.exclusiveBind)) {
         return false;
     }
 
@@ -46,6 +46,7 @@ bool Receiver::Start(const ReceiverConfig& config, std::string* error) {
 void Receiver::Stop() noexcept {
     socket_.Close();
     trackers_.clear();
+    retiredSenderSessions_.clear();
     clockSync_.Reset();
     activeSenderSessionId_ = 0;
     activeSenderEndpoint_ = {};
@@ -119,6 +120,15 @@ void Receiver::HandlePacket(const DecodedPacket& decoded,
     if (isPose || isDeviceState) {
         if (activeSenderSessionId_ == 0 ||
             decoded.senderSessionId != activeSenderSessionId_) {
+            if (config_.rejectRetiredSessions) {
+                if (retiredSenderSessions_.count(decoded.senderSessionId)) return;
+                if (activeSenderSessionId_ != 0) {
+                    // Never evict a retired identity and allow a delayed packet
+                    // to resurrect it. A full guard requires a service restart.
+                    if (retiredSenderSessions_.size() >= config_.maxRetiredSessions) return;
+                    retiredSenderSessions_.insert(activeSenderSessionId_);
+                }
+            }
             BeginSenderSession(decoded.senderSessionId, source);
         } else {
             activeSenderEndpoint_ = source;
