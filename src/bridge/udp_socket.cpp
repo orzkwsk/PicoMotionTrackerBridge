@@ -89,7 +89,8 @@ UdpSocket& UdpSocket::operator=(UdpSocket&& other) noexcept {
     return *this;
 }
 
-bool UdpSocket::Open(uint16_t bindPort, bool nonBlocking, std::string* error) {
+bool UdpSocket::Open(uint16_t bindPort, bool nonBlocking, std::string* error,
+                     bool exclusiveBind, bool loopbackOnly) {
     Close();
 
 #ifdef _WIN32
@@ -111,15 +112,18 @@ bool UdpSocket::Open(uint16_t bindPort, bool nonBlocking, std::string* error) {
 
     int reuse = 1;
 #ifdef _WIN32
-    ::setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR,
-                 reinterpret_cast<const char*>(&reuse), sizeof(reuse));
+    if (::setsockopt(socketHandle, SOL_SOCKET,
+                    exclusiveBind ? SO_EXCLUSIVEADDRUSE : SO_REUSEADDR,
+                    reinterpret_cast<const char*>(&reuse), sizeof(reuse)) != 0) {
+        SetError(error, "setsockopt bind ownership failed"); Close(); return false;
+    }
 #else
-    ::setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    if (!exclusiveBind) ::setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 #endif
 
     sockaddr_in local{};
     local.sin_family = AF_INET;
-    local.sin_addr.s_addr = htonl(INADDR_ANY);
+    local.sin_addr.s_addr = htonl(loopbackOnly ? INADDR_LOOPBACK : INADDR_ANY);
     local.sin_port = htons(bindPort);
 
     if (::bind(socketHandle, reinterpret_cast<const sockaddr*>(&local), sizeof(local)) != 0) {

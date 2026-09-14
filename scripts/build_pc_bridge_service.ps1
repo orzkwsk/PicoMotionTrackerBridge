@@ -33,6 +33,14 @@ $sourcePaths = @(
     (Join-Path $RepoRoot "src\bridge\clock_sync.cpp"),
     (Join-Path $RepoRoot "src\bridge\udp_socket.cpp")
 )
+$sourcePaths += Get-ChildItem -Path (Join-Path $RepoRoot "src\observation") -File -Recurse |
+    Select-Object -ExpandProperty FullName
+$sourcePaths += Get-ChildItem -Path (Join-Path $RepoRoot "include\pico_ot_backend") -Filter "observation_*.hpp" -File |
+    Select-Object -ExpandProperty FullName
+$sourcePaths += Get-ChildItem -Path (Join-Path $RepoRoot "include\pico_ot_bridge") -File -Recurse |
+    Select-Object -ExpandProperty FullName
+$sourcePaths += Get-ChildItem -Path (Join-Path $RepoRoot "third_party\monaka-protocol\cpp") -File -Recurse |
+    Select-Object -ExpandProperty FullName
 
 $needsBuild = -not $existingExe
 if (-not $needsBuild) {

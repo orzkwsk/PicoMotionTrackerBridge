@@ -30,7 +30,8 @@ public:
     UdpSocket& operator=(UdpSocket&& other) noexcept;
 
     // bindPort=0 asks the OS for an ephemeral port.
-    bool Open(uint16_t bindPort, bool nonBlocking, std::string* error = nullptr);
+    bool Open(uint16_t bindPort, bool nonBlocking, std::string* error = nullptr,
+              bool exclusiveBind = false, bool loopbackOnly = false);
     void Close() noexcept;
 
     [[nodiscard]] bool IsOpen() const noexcept;

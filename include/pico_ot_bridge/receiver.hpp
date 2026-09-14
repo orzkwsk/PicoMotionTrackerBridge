@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace pico_ot::bridge {
@@ -17,6 +18,10 @@ struct ReceiverConfig {
     int64_t timeSyncIntervalNs = 1'000'000'000LL;
     int64_t staleTimeoutNs = 500'000'000LL;
     uint64_t clientSessionId = 0;
+    // Enabled by the single PC HMD ingress owner. Legacy consumers retain defaults.
+    bool exclusiveBind = false;
+    bool rejectRetiredSessions = false;
+    size_t maxRetiredSessions = 1024;
 };
 
 struct ReceivedTrackerState {
@@ -71,6 +76,7 @@ private:
     UdpSocket socket_;
     ClockSyncEstimator clockSync_;
     std::unordered_map<std::string, ReceivedTrackerState> trackers_;
+    std::unordered_set<uint64_t> retiredSenderSessions_;
 
     uint64_t clientSessionId_ = 0;
     uint64_t activeSenderSessionId_ = 0;
