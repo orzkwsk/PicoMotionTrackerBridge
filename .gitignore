@@ -1,4 +1,7 @@
 build/
+build-steamvr/
+dist/
+__pycache__/
 build-android/
 build-gui/
 build-monaka-receiver-capi/
