@@ -30,14 +30,14 @@ type Capability = "position" | "orientation" | "linear_velocity" |
                   "angular_velocity" | "linear_acceleration" |
                   "battery_fraction" | "charging";
 type CoordinateSpace = {
-  id: Id;
-  convention: Id;
-  revision: number;
+  id: Id;                 // shared origin/map identity, not merely axis names
+  convention: Id;         // profile key; no automatic identity fallback
+  revision: number;       // uint32; changes when origin/map changes
 };
 type Battery = {
-  fraction: number | null;
+  fraction: number | null; // 0..1; unknown is null, never a vendor raw bucket
   charging: boolean | null;
-  timestamp_ns: U63;
+  timestamp_ns: U63;      // same clock as this envelope; actual metadata receipt
 };
 type Derivative = {
   value: Vec3;
@@ -45,26 +45,26 @@ type Derivative = {
   evidence: "measured" | "derived";
 };
 type Header = {
-  version: { major: 1; minor: number };
+  version: { major: 1; minor: number }; // uint16; v1.0 encoder emits minor=0
   source_id: Id;
-  session_id: Uuid;
-  clock_id: Uuid;
+  session_id: Uuid;        // new for each publisher lifetime
+  clock_id: Uuid;          // identifies monotonic epoch, may equal session_id
   sequence: U63;
-  timestamp_ns: U63;
-  sent_at_ns: U63;
+  timestamp_ns: U63;       // immutable sample/state admission time in publisher clock
+  sent_at_ns: U63;         // encoding time in the SAME clock
   timestamp_kind: "sample" | "receive";
 };
 type TrackerObservation = Header & {
   protocol: "monaka.observation";
   type: "pose";
   device_id: Id;
-  position: Vec3 | null;
-  orientation: QuatXyzw | null;
+  position: Vec3 | null;             // metres in declared coordinate space
+  orientation: QuatXyzw | null;      // device-to-space orientation convention
   validity: { position: boolean; orientation: boolean };
   orientation_evidence: "device" | "sample_sanity" | "none";
-  linear_velocity?: Derivative | null;
-  angular_velocity?: Derivative | null;
-  linear_acceleration?: Derivative | null;
+  linear_velocity?: Derivative | null;      // m/s
+  angular_velocity?: Derivative | null;     // rad/s
+  linear_acceleration?: Derivative | null;  // m/s^2; gravity removed
   tracking_state: TrackingState;
   battery: Battery | null;
   coordinate_space: CoordinateSpace;
@@ -84,17 +84,17 @@ type MtpPose = Header & {
   protocol: "monaka.tracking";
   type: "pose";
   tracker_id: Id;
-  position: Vec3 | null;
-  orientation: QuatXyzw | null;
+  position: Vec3 | null;            // normalized/calibrated reference point
+  orientation: QuatXyzw | null;     // normalized device-to-world rotation
   validity: { position: boolean; orientation: boolean };
-  linear_velocity?: Vec3 | null;
-  angular_velocity?: Vec3 | null;
-  linear_acceleration?: Vec3 | null;
-  confidence: { position: number; orientation: number };
+  linear_velocity?: Vec3 | null;   // in normalized world axes, m/s
+  angular_velocity?: Vec3 | null;  // in normalized world axes, rad/s
+  linear_acceleration?: Vec3 | null; // in normalized world axes, m/s^2
+  confidence: { position: number; orientation: number }; // each 0..1
   tracking_state: TrackingState;
   coordinate_space: CoordinateSpace;
   capabilities: Capability[];
-  mapping_revision: number;
+  mapping_revision: number;        // uint32; ID/calibration/profile revision
   input: {
     device_id: Id;
     session_id: Uuid;
