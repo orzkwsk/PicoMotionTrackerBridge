@@ -73,8 +73,8 @@
         "--config",
         "Release",
         "--target",
-        "monaka_codec_runner",
-        "monaka_codec_runner_v2"
+        "third_party/monaka-protocol-v2/cpp/monaka_codec_runner",
+        "third_party/monaka-protocol-v2/cpp/monaka_codec_runner_v2"
       ]
     },
     {
