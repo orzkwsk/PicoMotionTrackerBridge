@@ -65,6 +65,19 @@
       ]
     },
     {
+      "name": "codec-probe-build",
+      "command": [
+        "{CMAKE}",
+        "--build",
+        "{BUILD}",
+        "--config",
+        "Release",
+        "--target",
+        "monaka_codec_runner",
+        "monaka_codec_runner_v2"
+      ]
+    },
+    {
       "name": "ctest",
       "command": [
         "{CTEST}",
@@ -76,18 +89,6 @@
         "--no-tests=error",
         "--output-junit",
         "{WORK}/ctest.xml"
-      ]
-    },
-    {
-      "name": "codec-probe-build",
-      "command": [
-        "{CMAKE}",
-        "--build",
-        "{BUILD}",
-        "--config",
-        "Release",
-        "--target",
-        "monaka_codec_runner_v2"
       ]
     },
     {
@@ -114,8 +115,8 @@
     "pinned-v2-kit",
     "cmake-configure",
     "cmake-build",
-    "ctest",
     "codec-probe-build",
+    "ctest",
     "v2-interop"
   ],
   "test_groups": [
@@ -133,7 +134,9 @@
         "pico_ot_bridge_udp_socket_tests",
         "pico_ot_bridge_publisher_tests",
         "pico_ot_bridge_receiver_tests",
-        "monaka_protocol_v1_kit_integrity"
+        "monaka_protocol_v1_kit_integrity",
+        "model_validation",
+        "model_validation_v2"
       ]
     }
   ],
