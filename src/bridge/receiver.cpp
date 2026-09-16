@@ -24,9 +24,11 @@ uint64_t GenerateSessionId() {
 bool Receiver::Start(const ReceiverConfig& config, std::string* error) {
     Stop();
 
-    if (config.timeSyncIntervalNs <= 0 || config.staleTimeoutNs <= 0) {
+    if (config.timeSyncIntervalNs <= 0 || config.staleTimeoutNs <= 0 ||
+        config.maxTrackers == 0 || config.maxTrackers > 4096 ||
+        config.maxPacketsPerPump == 0 || config.maxPacketsPerPump > 4096) {
         if (error) {
-            *error = "receiver intervals must be positive";
+            *error = "receiver intervals/bounds must be positive and bounds at most 4096";
         }
         return false;
     }
@@ -151,6 +153,7 @@ void Receiver::HandlePacket(const DecodedPacket& decoded,
     }
 
     if (const auto* pose = std::get_if<PosePacket>(&decoded.payload)) {
+        if (!trackers_.count(pose->serial) && trackers_.size() >= config_.maxTrackers) return;
         auto& state = trackers_[pose->serial];
         if (state.hasPoseSequence &&
             !IsNewerSequence(decoded.sequence, state.lastPoseSequence)) {
@@ -171,6 +174,7 @@ void Receiver::HandlePacket(const DecodedPacket& decoded,
     }
 
     if (const auto* device = std::get_if<DeviceStatePacket>(&decoded.payload)) {
+        if (!trackers_.count(device->serial) && trackers_.size() >= config_.maxTrackers) return;
         auto& state = trackers_[device->serial];
         if (state.hasDeviceSequence &&
             !IsNewerSequence(decoded.sequence, state.lastDeviceSequence)) {
@@ -221,7 +225,7 @@ bool Receiver::Pump(std::string* error) {
     }
 
     std::array<uint8_t, 512> buffer{};
-    for (;;) {
+    for (size_t packet = 0; packet < config_.maxPacketsPerPump; ++packet) {
         size_t receivedSize = 0;
         UdpEndpoint source;
         std::string receiveError;

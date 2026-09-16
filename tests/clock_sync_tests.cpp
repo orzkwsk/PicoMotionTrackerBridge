@@ -1,6 +1,6 @@
 #include "pico_ot_bridge/clock_sync.hpp"
 
-#include <cassert>
+#include "require.hpp"
 #include <cstdint>
 
 using namespace pico_ot::bridge;
@@ -19,22 +19,22 @@ void TestSymmetricExchange() {
         1'005'000'000ll,  // t3 PC
     };
 
-    assert(estimator.Observe(observation));
+    REQUIRE(estimator.Observe(observation));
     const auto estimate = estimator.Estimate();
-    assert(estimate.has_value());
-    assert(estimate->hmdMinusPcNs == 5'000'000'000ll);
-    assert(estimate->networkRoundTripNs == 4'000'000ll);
+    REQUIRE(estimate.has_value());
+    REQUIRE(estimate->hmdMinusPcNs == 5'000'000'000ll);
+    REQUIRE(estimate->networkRoundTripNs == 4'000'000ll);
 
     const auto mapped = estimator.HmdToPcMonotonicNs(10'000'000'000ll);
-    assert(mapped.has_value());
-    assert(*mapped == 5'000'000'000ll);
+    REQUIRE(mapped.has_value());
+    REQUIRE(*mapped == 5'000'000'000ll);
 }
 
 void TestLowestRttWins() {
     ClockSyncEstimator estimator(3);
 
     // Same underlying +5 s offset, but asymmetric queueing biases this sample.
-    assert(estimator.Observe({
+    REQUIRE(estimator.Observe({
         2'000'000'000ll,
         7'009'000'000ll,
         7'010'000'000ll,
@@ -42,7 +42,7 @@ void TestLowestRttWins() {
     }));
 
     // Lower RTT, symmetric sample should become the active estimate.
-    assert(estimator.Observe({
+    REQUIRE(estimator.Observe({
         3'000'000'000ll,
         8'001'000'000ll,
         8'002'000'000ll,
@@ -50,22 +50,22 @@ void TestLowestRttWins() {
     }));
 
     const auto estimate = estimator.Estimate();
-    assert(estimate.has_value());
-    assert(estimate->hmdMinusPcNs == 5'000'000'000ll);
-    assert(estimate->networkRoundTripNs == 2'000'000ll);
+    REQUIRE(estimate.has_value());
+    REQUIRE(estimate->hmdMinusPcNs == 5'000'000'000ll);
+    REQUIRE(estimate->networkRoundTripNs == 2'000'000ll);
 }
 
 void TestInvalidObservation() {
     ClockSyncEstimator estimator;
-    assert(!estimator.Estimate().has_value());
-    assert(!estimator.HmdToPcMonotonicNs(123).has_value());
+    REQUIRE(!estimator.Estimate().has_value());
+    REQUIRE(!estimator.HmdToPcMonotonicNs(123).has_value());
 
     // Client receive predates client send.
-    assert(!estimator.Observe({100, 200, 210, 90}));
+    REQUIRE(!estimator.Observe({100, 200, 210, 90}));
 
     // Server processing interval exceeds complete client round trip.
-    assert(!estimator.Observe({100, 150, 300, 200}));
-    assert(!estimator.Estimate().has_value());
+    REQUIRE(!estimator.Observe({100, 150, 300, 200}));
+    REQUIRE(!estimator.Estimate().has_value());
 }
 
 }  // namespace

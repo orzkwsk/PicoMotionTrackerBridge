@@ -1,7 +1,7 @@
 #include "pico_ot_bridge/udp_socket.hpp"
 
 #include <array>
-#include <cassert>
+#include "require.hpp"
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -14,12 +14,12 @@ int main() {
     UdpSocket sender;
     std::string error;
 
-    assert(receiver.Open(0, true, &error));
-    assert(receiver.BoundPort() != 0);
-    assert(sender.Open(0, true, &error));
+    REQUIRE(receiver.Open(0, true, &error));
+    REQUIRE(receiver.BoundPort() != 0);
+    REQUIRE(sender.Open(0, true, &error));
 
     const std::array<uint8_t, 5> payload{{1, 2, 3, 4, 5}};
-    assert(sender.SendTo({"127.0.0.1", receiver.BoundPort()},
+    REQUIRE(sender.SendTo({"127.0.0.1", receiver.BoundPort()},
                          payload.data(), payload.size(), &error));
 
     std::array<uint8_t, 64> buffer{};
@@ -34,17 +34,17 @@ int main() {
         }
     }
 
-    assert(status == UdpReceiveStatus::Packet);
-    assert(receivedSize == payload.size());
-    assert(source.address == "127.0.0.1");
-    assert(source.port == sender.BoundPort());
+    REQUIRE(status == UdpReceiveStatus::Packet);
+    REQUIRE(receivedSize == payload.size());
+    REQUIRE(source.address == "127.0.0.1");
+    REQUIRE(source.port == sender.BoundPort());
     for (size_t i = 0; i < payload.size(); ++i) {
-        assert(buffer[i] == payload[i]);
+        REQUIRE(buffer[i] == payload[i]);
     }
 
     receiver.Close();
     sender.Close();
-    assert(!receiver.IsOpen());
-    assert(!sender.IsOpen());
+    REQUIRE(!receiver.IsOpen());
+    REQUIRE(!sender.IsOpen());
     return 0;
 }

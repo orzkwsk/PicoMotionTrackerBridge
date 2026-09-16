@@ -4,7 +4,7 @@
 #include "pico_ot_bridge/udp_socket.hpp"
 
 #include <array>
-#include <cassert>
+#include "require.hpp"
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -26,7 +26,7 @@ bool ReceivePacket(UdpSocket& socket, DecodedPacket& decoded, UdpEndpoint& sourc
         if (status == UdpReceiveStatus::Packet) {
             return DecodePacket(buffer.data(), receivedSize, decoded) == DecodeStatus::Ok;
         }
-        assert(status != UdpReceiveStatus::Error);
+        REQUIRE(status != UdpReceiveStatus::Error);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     return false;
@@ -35,13 +35,13 @@ bool ReceivePacket(UdpSocket& socket, DecodedPacket& decoded, UdpEndpoint& sourc
 void TestPoseAndDevicePackets() {
     UdpSocket pc;
     std::string error;
-    assert(pc.Open(0, true, &error));
+    REQUIRE(pc.Open(0, true, &error));
 
     Publisher publisher;
     PublisherConfig config;
     config.pcEndpoint = {"127.0.0.1", pc.BoundPort()};
     config.senderSessionId = 0xabcddcba12344321ull;
-    assert(publisher.Start(config, &error));
+    REQUIRE(publisher.Start(config, &error));
 
     pico_ot::TrackerState tracker;
     tracker.serial = "PC2310MLK7200684G";
@@ -61,18 +61,18 @@ void TestPoseAndDevicePackets() {
     tracker.frame = pico_ot::ReferenceFrame::PicoOutputA;
     tracker.angularVelocityFrame = pico_ot::AngularVelocityFrame::DeviceLocalCandidate;
 
-    assert(publisher.SendPose(tracker, &error));
+    REQUIRE(publisher.SendPose(tracker, &error));
 
     DecodedPacket decoded;
     UdpEndpoint source;
-    assert(ReceivePacket(pc, decoded, source));
-    assert(decoded.senderSessionId == config.senderSessionId);
-    assert(std::holds_alternative<PosePacket>(decoded.payload));
+    REQUIRE(ReceivePacket(pc, decoded, source));
+    REQUIRE(decoded.senderSessionId == config.senderSessionId);
+    REQUIRE(std::holds_alternative<PosePacket>(decoded.payload));
     const auto& pose = std::get<PosePacket>(decoded.payload);
-    assert(pose.serial == tracker.serial);
-    assert(pose.positionValid);
-    assert(pose.positionMeters.z == 3.0);
-    assert(pose.rawTrackingState65 == 2);
+    REQUIRE(pose.serial == tracker.serial);
+    REQUIRE(pose.positionValid);
+    REQUIRE(pose.positionMeters.z == 3.0);
+    REQUIRE(pose.rawTrackingState65 == 2);
 
     pico_ot::DeviceInfo device;
     device.serial = tracker.serial;
@@ -82,40 +82,40 @@ void TestPoseAndDevicePackets() {
     device.batteryBucketRaw = static_cast<uint8_t>(9);
     device.observedMonotonicNs = 999;
 
-    assert(publisher.SendDeviceState(device, &error));
-    assert(ReceivePacket(pc, decoded, source));
-    assert(std::holds_alternative<DeviceStatePacket>(decoded.payload));
+    REQUIRE(publisher.SendDeviceState(device, &error));
+    REQUIRE(ReceivePacket(pc, decoded, source));
+    REQUIRE(std::holds_alternative<DeviceStatePacket>(decoded.payload));
     const auto& state = std::get<DeviceStatePacket>(decoded.payload);
-    assert(state.serial == device.serial);
-    assert(state.batteryBucketPresent);
-    assert(state.batteryBucketRaw == 9);
+    REQUIRE(state.serial == device.serial);
+    REQUIRE(state.batteryBucketPresent);
+    REQUIRE(state.batteryBucketRaw == 9);
 }
 
 void TestClockSyncResponse() {
     UdpSocket pc;
     std::string error;
-    assert(pc.Open(0, true, &error));
+    REQUIRE(pc.Open(0, true, &error));
 
     Publisher publisher;
     PublisherConfig config;
     config.pcEndpoint = {"127.0.0.1", pc.BoundPort()};
     config.senderSessionId = 0x1111222233334444ull;
-    assert(publisher.Start(config, &error));
+    REQUIRE(publisher.Start(config, &error));
 
     TimeSyncRequestPacket request;
     request.nonce = 77;
     request.clientSendMonotonicNs = MonotonicNowNs();
 
     std::vector<uint8_t> bytes;
-    assert(EncodeTimeSyncRequestPacket(0x9999, 1, request, bytes));
-    assert(pc.SendTo({"127.0.0.1", publisher.LocalPort()},
+    REQUIRE(EncodeTimeSyncRequestPacket(0x9999, 1, request, bytes));
+    REQUIRE(pc.SendTo({"127.0.0.1", publisher.LocalPort()},
                      bytes.data(), bytes.size(), &error));
 
     bool gotResponse = false;
     DecodedPacket decoded;
     UdpEndpoint source;
     for (int i = 0; i < 200 && !gotResponse; ++i) {
-        assert(publisher.PumpControl(&error));
+        REQUIRE(publisher.PumpControl(&error));
         if (ReceivePacket(pc, decoded, source)) {
             gotResponse = std::holds_alternative<TimeSyncResponsePacket>(decoded.payload);
             if (gotResponse) {
@@ -125,13 +125,13 @@ void TestClockSyncResponse() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    assert(gotResponse);
-    assert(decoded.senderSessionId == config.senderSessionId);
+    REQUIRE(gotResponse);
+    REQUIRE(decoded.senderSessionId == config.senderSessionId);
     const auto& response = std::get<TimeSyncResponsePacket>(decoded.payload);
-    assert(response.nonce == 77);
-    assert(response.clientSendMonotonicNs == request.clientSendMonotonicNs);
-    assert(response.serverReceiveMonotonicNs > 0);
-    assert(response.serverSendMonotonicNs >= response.serverReceiveMonotonicNs);
+    REQUIRE(response.nonce == 77);
+    REQUIRE(response.clientSendMonotonicNs == request.clientSendMonotonicNs);
+    REQUIRE(response.serverReceiveMonotonicNs > 0);
+    REQUIRE(response.serverSendMonotonicNs >= response.serverReceiveMonotonicNs);
 }
 
 }  // namespace
