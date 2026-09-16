@@ -3,6 +3,10 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+
+if __name__ == "__main__":
+    raise SystemExit("Historical wire-v1 report is retired at current v2 HEAD. Use python scripts/release_v2.py; see docs/release-v2.md. Historical supplied artifacts remain immutable provenance.")
+
 ROOT=Path(__file__).resolve().parents[1]
 BASE='22c7bd8cdbd9a52355b6ff182f0ddc462a998bd8'
 def git(*args):return subprocess.check_output(['git',*args],cwd=ROOT,text=True).strip()

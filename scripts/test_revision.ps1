@@ -54,6 +54,8 @@ function Invoke-RevisionStep {
 
 $BuildDir = Join-Path $RepoRoot ("build/revision-{0}" -f $Mode.ToLowerInvariant())
 $Steps = @(
+    @{ Name='release-tooling'; File='python'; Args=@('scripts/test_release_v2.py') },
+    @{ Name='release-tooling-optimized'; File='python'; Args=@('-O','scripts/test_release_v2.py') },
     @{ Name='protocol-v2-kit'; File='python'; Args=@('scripts/verify_protocol_v2.py') },
     @{ Name='protocol-v1-historical-kit'; File='python'; Args=@('scripts/import_protocol_kit.py','--verify') },
     @{ Name='cmake-configure'; File='cmake'; Args=@('-S','.','-B',$BuildDir,'-DPICO_OT_BUILD_TESTS=ON','-DCMAKE_BUILD_TYPE=Release') },
@@ -90,7 +92,7 @@ $summary = [ordered]@{
     ended_utc = (Get-Date).ToUniversalTime().ToString('o')
     hardware_validation = 'NOT RUN'
     pico_hardware = 'NOT RUN'
-    release_packaging = 'NOT RUN - historical release tooling is outside this software regression runner'
+    release_packaging = 'NOT RUN - run scripts/release_v2.py separately for source-bound v2 evidence'
     steps = $StepResults
 }
 $summaryPath = Join-Path $ResultsDir 'summary.json'
