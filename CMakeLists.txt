@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 project(PicoMotionTrackerBackend VERSION 0.1.0 LANGUAGES C CXX)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_protocol_v2.py" RESULT_VARIABLE revision_kit_result)
+if(NOT revision_kit_result EQUAL 0)
+ message(FATAL_ERROR "Protocol v2 fixed artifact verification failed")
+endif()
+
+
 option(PICO_OT_BUILD_TESTS "Build host-side backend/bridge tests" ON)
 option(PICO_OT_BUILD_SHARED "Build shared backend library" ON)
 option(PICO_OT_BUILD_STEAMVR_DRIVER "Build the Windows SteamVR server driver" OFF)
@@ -98,7 +105,7 @@ endif()
 
 if(NOT ANDROID)
     # Task 1's verified kit is a PC-only dependency. Never add JSON to the HMD NDK ABI.
-    add_subdirectory(third_party/monaka-protocol/cpp EXCLUDE_FROM_ALL)
+    add_subdirectory(third_party/monaka-protocol-v2/cpp EXCLUDE_FROM_ALL)
     add_library(pico_observation_provider STATIC
         src/observation/observation_adapter.cpp
         src/observation/observation_publisher.cpp
@@ -201,12 +208,13 @@ endif()
 
 if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     enable_testing()
+    add_test(NAME monaka_protocol_v2_kit_integrity COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_protocol_v2.py)
     add_executable(pico_observation_tests tests/observation_tests.cpp)
     target_link_libraries(pico_observation_tests PRIVATE pico_observation_provider PicoOT::BridgePublisher)
     add_test(NAME pico_observation_tests COMMAND pico_observation_tests)
     find_package(Python3 COMPONENTS Interpreter)
     if(Python3_FOUND)
-        add_test(NAME monaka_protocol_kit_integrity
+        add_test(NAME monaka_protocol_v1_kit_integrity
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/import_protocol_kit.py --verify)
     endif()
 

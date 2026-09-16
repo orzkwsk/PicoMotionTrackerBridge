@@ -8,9 +8,9 @@ bool ObservationPublisher::Start(uint16_t port, std::string* error) {
 }
 void ObservationPublisher::Publish(PicoObservationAdapter& adapter, const bridge::Receiver& receiver, int64_t now) {
     for (auto& value : adapter.Collect(receiver,now)) {
-        std::string bytes; monaka::protocol::v1::Error error;
+        std::string bytes; monaka::protocol::v2::Error error;
         if (!adapter.StampSentAt(value,bridge::MonotonicNowNs()) ||
-            !monaka::protocol::v1::EncodeEnvelope(value,bytes,error) ||
+            !monaka::protocol::v2::EncodeEnvelope(value,bytes,error) ||
             !socket_.SendTo(destination_,reinterpret_cast<const uint8_t*>(bytes.data()),bytes.size())) ++errors_;
         else ++sent_;
     }

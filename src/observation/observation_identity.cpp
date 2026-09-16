@@ -1,5 +1,5 @@
 #include "pico_ot_backend/observation_identity.hpp"
-#include "monaka/protocol/v1/codec.hpp"
+#include "monaka/protocol/v2/codec.hpp"
 #include <array>
 #include <fstream>
 #include <limits>
@@ -37,9 +37,9 @@ ObservationIdentity::ObservationIdentity(std::filesystem::path path) : path_(std
     } else {
         source_=NewObservationUuid(); space_=source_+"/pico-map";
     }
-    namespace p = monaka::protocol::v1;
+    namespace p = monaka::protocol::v2;
     p::ObservationDeviceState probe;
-    probe.version={1,0}; probe.source_id=source_; probe.device_id="identity-validation";
+    probe.version={2,0}; probe.modality="none"; probe.source_id=source_; probe.device_id="identity-validation";
     probe.session_id=NewObservationUuid(); probe.clock_id=probe.session_id;
     probe.timestamp_kind="receive"; probe.presence="unknown"; probe.tracking_state="unknown";
     probe.coordinate_space={space_,"pico-output-a-v1",revision_};
