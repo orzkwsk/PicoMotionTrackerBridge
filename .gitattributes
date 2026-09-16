@@ -1,3 +1,4 @@
 third_party/monaka-protocol/** -text
 dependencies/** -text
 *.zip binary
+third_party/monaka-protocol-v2/** -text
