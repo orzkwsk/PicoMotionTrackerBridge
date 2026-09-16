@@ -1,0 +1,156 @@
+{
+  "repo": "PicoMotionTrackerBridge",
+  "commands": [
+    {
+      "name": "release-tool-tests",
+      "command": [
+        "{PYTHON}",
+        "scripts/test_release_v2.py"
+      ]
+    },
+    {
+      "name": "release-tool-tests-optimized",
+      "command": [
+        "{PYTHON}",
+        "-O",
+        "scripts/test_release_v2.py"
+      ]
+    },
+    {
+      "name": "java-version",
+      "command": [
+        "{JAVA}",
+        "-version"
+      ]
+    },
+    {
+      "name": "cmake-version",
+      "command": [
+        "{CMAKE}",
+        "--version"
+      ]
+    },
+    {
+      "name": "pinned-v2-kit",
+      "command": [
+        "{PYTHON}",
+        "scripts/verify_protocol_v2.py"
+      ]
+    },
+    {
+      "name": "cmake-configure",
+      "command": [
+        "{CMAKE}",
+        "-S",
+        "{ROOT}",
+        "-B",
+        "{BUILD}",
+        "-A",
+        "x64",
+        "-DBUILD_TESTING=ON",
+        "-DMONAKA_BUILD_TESTS=ON",
+        "-DCMAKE_CXX_FLAGS=/EHsc",
+        "-DPICO_OT_BUILD_TESTS=ON",
+        "-DPICO_OT_BUILD_STEAMVR_DRIVER=OFF"
+      ]
+    },
+    {
+      "name": "cmake-build",
+      "command": [
+        "{CMAKE}",
+        "--build",
+        "{BUILD}",
+        "--config",
+        "Release"
+      ]
+    },
+    {
+      "name": "ctest",
+      "command": [
+        "{CTEST}",
+        "--test-dir",
+        "{BUILD}",
+        "-C",
+        "Release",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--output-junit",
+        "{WORK}/ctest.xml"
+      ]
+    },
+    {
+      "name": "codec-probe-build",
+      "command": [
+        "{CMAKE}",
+        "--build",
+        "{BUILD}",
+        "--config",
+        "Release",
+        "--target",
+        "monaka_codec_runner_v2"
+      ]
+    },
+    {
+      "name": "v2-interop",
+      "command": [
+        "{PYTHON}",
+        "scripts/release_interop.py",
+        "--kit",
+        "{ROOT}/third_party/monaka-protocol-v2",
+        "--cpp",
+        "{BUILD}/third_party/monaka-protocol-v2/cpp/Release/monaka_codec_runner_v2.exe",
+        "--java-home",
+        "{JAVA_HOME}",
+        "--work",
+        "{WORK}/interop"
+      ]
+    }
+  ],
+  "required_steps": [
+    "release-tool-tests",
+    "release-tool-tests-optimized",
+    "java-version",
+    "cmake-version",
+    "pinned-v2-kit",
+    "cmake-configure",
+    "cmake-build",
+    "ctest",
+    "codec-probe-build",
+    "v2-interop"
+  ],
+  "test_groups": [
+    {
+      "name": "native",
+      "paths": [
+        "{WORK}/ctest.xml"
+      ],
+      "required": [
+        "monaka_protocol_v2_kit_integrity",
+        "pico_observation_tests",
+        "pico_ot_backend_tests",
+        "pico_ot_bridge_protocol_tests",
+        "pico_ot_bridge_clock_sync_tests",
+        "pico_ot_bridge_udp_socket_tests",
+        "pico_ot_bridge_publisher_tests",
+        "pico_ot_bridge_receiver_tests",
+        "monaka_protocol_v1_kit_integrity"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "runtime/pico_ot_bridge_service.exe",
+      "path": "{BUILD}/Release/pico_ot_bridge_service.exe"
+    },
+    {
+      "name": "runtime/pico_ot_backend.dll",
+      "path": "{BUILD}/Release/pico_ot_backend.dll"
+    }
+  ],
+  "evidence": [
+    {
+      "name": "evidence/v2-interop.json",
+      "path": "{WORK}/interop/result.json"
+    }
+  ]
+}
