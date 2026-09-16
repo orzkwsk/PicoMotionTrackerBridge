@@ -1,6 +1,6 @@
 #include "pico_ot_bridge/protocol.hpp"
 
-#include <cassert>
+#include "require.hpp"
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -37,35 +37,35 @@ void TestPoseRoundTrip() {
     src.angularVelocityFrame = 1;
 
     std::vector<uint8_t> bytes;
-    assert(EncodePosePacket(kSession, 42, src, bytes));
-    assert(bytes.size() == kWireHeaderSize + 174);
+    REQUIRE(EncodePosePacket(kSession, 42, src, bytes));
+    REQUIRE(bytes.size() == kWireHeaderSize + 174);
 
     DecodedPacket decoded;
-    assert(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
-    assert(decoded.senderSessionId == kSession);
-    assert(decoded.sequence == 42);
-    assert(std::holds_alternative<PosePacket>(decoded.payload));
+    REQUIRE(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
+    REQUIRE(decoded.senderSessionId == kSession);
+    REQUIRE(decoded.sequence == 42);
+    REQUIRE(std::holds_alternative<PosePacket>(decoded.payload));
 
     const auto& out = std::get<PosePacket>(decoded.payload);
-    assert(out.serial == src.serial);
-    assert(out.runtimeDeviceId == 4);
-    assert(out.connectedSnapshot);
-    assert(out.positionValid);
-    assert(out.orientationSamplePresent);
-    assert(out.mappedMonotonicValid);
-    assert(out.rawTrackingState65 == 3);
-    assert(out.sourceTimestamp == src.sourceTimestamp);
-    assert(out.observedMonotonicNs == src.observedMonotonicNs);
-    assert(out.mappedMonotonicNs == src.mappedMonotonicNs);
-    assert(Near(out.positionMeters.x, 1.25));
-    assert(Near(out.positionMeters.y, -2.5));
-    assert(Near(out.positionMeters.z, 3.75));
-    assert(Near(out.orientationXyzw.x, -0.1));
-    assert(Near(out.orientationXyzw.w, 0.9));
-    assert(Near(out.linearVelocityMetersPerSec.z, 0.6));
-    assert(Near(out.angularVelocityRadPerSec.y, 1.2));
-    assert(out.referenceFrame == 0);
-    assert(out.angularVelocityFrame == 1);
+    REQUIRE(out.serial == src.serial);
+    REQUIRE(out.runtimeDeviceId == 4);
+    REQUIRE(out.connectedSnapshot);
+    REQUIRE(out.positionValid);
+    REQUIRE(out.orientationSamplePresent);
+    REQUIRE(out.mappedMonotonicValid);
+    REQUIRE(out.rawTrackingState65 == 3);
+    REQUIRE(out.sourceTimestamp == src.sourceTimestamp);
+    REQUIRE(out.observedMonotonicNs == src.observedMonotonicNs);
+    REQUIRE(out.mappedMonotonicNs == src.mappedMonotonicNs);
+    REQUIRE(Near(out.positionMeters.x, 1.25));
+    REQUIRE(Near(out.positionMeters.y, -2.5));
+    REQUIRE(Near(out.positionMeters.z, 3.75));
+    REQUIRE(Near(out.orientationXyzw.x, -0.1));
+    REQUIRE(Near(out.orientationXyzw.w, 0.9));
+    REQUIRE(Near(out.linearVelocityMetersPerSec.z, 0.6));
+    REQUIRE(Near(out.angularVelocityRadPerSec.y, 1.2));
+    REQUIRE(out.referenceFrame == 0);
+    REQUIRE(out.angularVelocityFrame == 1);
 }
 
 void TestDeviceStateRoundTrip() {
@@ -79,76 +79,76 @@ void TestDeviceStateRoundTrip() {
     src.observedMonotonicNs = 9988776655ll;
 
     std::vector<uint8_t> bytes;
-    assert(EncodeDeviceStatePacket(kSession, 7, src, bytes));
+    REQUIRE(EncodeDeviceStatePacket(kSession, 7, src, bytes));
 
     DecodedPacket decoded;
-    assert(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
-    assert(decoded.senderSessionId == kSession);
-    assert(decoded.sequence == 7);
-    assert(std::holds_alternative<DeviceStatePacket>(decoded.payload));
+    REQUIRE(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
+    REQUIRE(decoded.senderSessionId == kSession);
+    REQUIRE(decoded.sequence == 7);
+    REQUIRE(std::holds_alternative<DeviceStatePacket>(decoded.payload));
 
     const auto& out = std::get<DeviceStatePacket>(decoded.payload);
-    assert(out.serial == src.serial);
-    assert(out.runtimeDeviceId == 3);
-    assert(out.connectedSnapshot);
-    assert(out.charging);
-    assert(out.batteryBucketPresent);
-    assert(out.batteryBucketRaw == 9);
-    assert(out.observedMonotonicNs == src.observedMonotonicNs);
+    REQUIRE(out.serial == src.serial);
+    REQUIRE(out.runtimeDeviceId == 3);
+    REQUIRE(out.connectedSnapshot);
+    REQUIRE(out.charging);
+    REQUIRE(out.batteryBucketPresent);
+    REQUIRE(out.batteryBucketRaw == 9);
+    REQUIRE(out.observedMonotonicNs == src.observedMonotonicNs);
 }
 
 void TestTimeSyncRoundTrip() {
     TimeSyncRequestPacket req{123, 1000};
     std::vector<uint8_t> bytes;
-    assert(EncodeTimeSyncRequestPacket(kSession, 8, req, bytes));
+    REQUIRE(EncodeTimeSyncRequestPacket(kSession, 8, req, bytes));
 
     DecodedPacket decoded;
-    assert(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
-    assert(decoded.senderSessionId == kSession);
+    REQUIRE(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
+    REQUIRE(decoded.senderSessionId == kSession);
     const auto& reqOut = std::get<TimeSyncRequestPacket>(decoded.payload);
-    assert(reqOut.nonce == 123);
-    assert(reqOut.clientSendMonotonicNs == 1000);
+    REQUIRE(reqOut.nonce == 123);
+    REQUIRE(reqOut.clientSendMonotonicNs == 1000);
 
     TimeSyncResponsePacket res{123, 1000, 1100, 1150};
-    assert(EncodeTimeSyncResponsePacket(kSession, 9, res, bytes));
-    assert(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
-    assert(decoded.senderSessionId == kSession);
+    REQUIRE(EncodeTimeSyncResponsePacket(kSession, 9, res, bytes));
+    REQUIRE(DecodePacket(bytes.data(), bytes.size(), decoded) == DecodeStatus::Ok);
+    REQUIRE(decoded.senderSessionId == kSession);
     const auto& resOut = std::get<TimeSyncResponsePacket>(decoded.payload);
-    assert(resOut.nonce == 123);
-    assert(resOut.clientSendMonotonicNs == 1000);
-    assert(resOut.serverReceiveMonotonicNs == 1100);
-    assert(resOut.serverSendMonotonicNs == 1150);
+    REQUIRE(resOut.nonce == 123);
+    REQUIRE(resOut.clientSendMonotonicNs == 1000);
+    REQUIRE(resOut.serverReceiveMonotonicNs == 1100);
+    REQUIRE(resOut.serverSendMonotonicNs == 1150);
 }
 
 void TestMalformedPackets() {
     PosePacket pose;
     pose.serial = "PC2310MLK7200684G";
     std::vector<uint8_t> bytes;
-    assert(EncodePosePacket(kSession, 1, pose, bytes));
+    REQUIRE(EncodePosePacket(kSession, 1, pose, bytes));
 
     DecodedPacket decoded;
-    assert(DecodePacket(bytes.data(), kWireHeaderSize - 1, decoded) == DecodeStatus::Truncated);
+    REQUIRE(DecodePacket(bytes.data(), kWireHeaderSize - 1, decoded) == DecodeStatus::Truncated);
 
     auto badMagic = bytes;
     badMagic[0] ^= 0xff;
-    assert(DecodePacket(badMagic.data(), badMagic.size(), decoded) == DecodeStatus::BadMagic);
+    REQUIRE(DecodePacket(badMagic.data(), badMagic.size(), decoded) == DecodeStatus::BadMagic);
 
     auto badVersion = bytes;
     badVersion[4] = 2;
     badVersion[5] = 0;
-    assert(DecodePacket(badVersion.data(), badVersion.size(), decoded) == DecodeStatus::UnsupportedVersion);
+    REQUIRE(DecodePacket(badVersion.data(), badVersion.size(), decoded) == DecodeStatus::UnsupportedVersion);
 
     auto truncated = bytes;
     truncated.pop_back();
-    assert(DecodePacket(truncated.data(), truncated.size(), decoded) == DecodeStatus::InvalidPayloadSize);
+    REQUIRE(DecodePacket(truncated.data(), truncated.size(), decoded) == DecodeStatus::InvalidPayloadSize);
 
     PosePacket nanPose = pose;
     nanPose.positionMeters.x = std::numeric_limits<double>::quiet_NaN();
-    assert(!EncodePosePacket(kSession, 1, nanPose, bytes));
+    REQUIRE(!EncodePosePacket(kSession, 1, nanPose, bytes));
 
     PosePacket longSerial = pose;
     longSerial.serial.assign(kWireSerialCapacity, 'A');
-    assert(!EncodePosePacket(kSession, 1, longSerial, bytes));
+    REQUIRE(!EncodePosePacket(kSession, 1, longSerial, bytes));
 }
 
 }  // namespace

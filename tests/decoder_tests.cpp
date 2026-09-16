@@ -1,7 +1,7 @@
 #include "internal/clock_mapper.hpp"
 #include "internal/decoder.hpp"
 
-#include <cassert>
+#include "require.hpp"
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
@@ -36,25 +36,25 @@ void TestDecode() {
 
     pico_ot::RawTrackerState state{};
     const auto status = pico_ot::internal::DecodeOutputA(raw, sizeof(raw), 0, 999, state);
-    assert(status.ok());
-    assert(state.sourceTimestamp == ts);
-    assert(state.positionValid);
-    assert(state.orientationSamplePresent);
-    assert(state.rawTrackingState65 == 3);
-    assert(std::fabs(state.positionMm.x - 1000.0) < 1e-9);
-    assert(std::fabs(state.angularVelocityRawRadPerSec.z - 0.3) < 1e-9);
-    assert(pico_ot::internal::OutputTailUnmodified(raw, 392, sizeof(raw), 0xA5));
+    REQUIRE(status.ok());
+    REQUIRE(state.sourceTimestamp == ts);
+    REQUIRE(state.positionValid);
+    REQUIRE(state.orientationSamplePresent);
+    REQUIRE(state.rawTrackingState65 == 3);
+    REQUIRE(std::fabs(state.positionMm.x - 1000.0) < 1e-9);
+    REQUIRE(std::fabs(state.angularVelocityRawRadPerSec.z - 0.3) < 1e-9);
+    REQUIRE(pico_ot::internal::OutputTailUnmodified(raw, 392, sizeof(raw), 0xA5));
 }
 
 void TestClockMapper() {
     pico_ot::internal::ClockMapper mapper(5, 100'000'000LL);
     int64_t mapped = 0;
-    assert(mapper.Observe(1'000'000'000ULL, 5'000'000'000LL, mapped));
-    assert(mapped == 5'000'000'000LL);
-    assert(mapper.Observe(1'010'000'000ULL, 5'010'001'000LL, mapped));
-    assert(std::llabs(mapped - 5'010'000'000LL) < 2'000LL);
-    assert(mapper.Observe(100ULL, 9'000'000'000LL, mapped));
-    assert(mapped == 9'000'000'000LL);
+    REQUIRE(mapper.Observe(1'000'000'000ULL, 5'000'000'000LL, mapped));
+    REQUIRE(mapped == 5'000'000'000LL);
+    REQUIRE(mapper.Observe(1'010'000'000ULL, 5'010'001'000LL, mapped));
+    REQUIRE(std::llabs(mapped - 5'010'000'000LL) < 2'000LL);
+    REQUIRE(mapper.Observe(100ULL, 9'000'000'000LL, mapped));
+    REQUIRE(mapped == 9'000'000'000LL);
 }
 
 }  // namespace

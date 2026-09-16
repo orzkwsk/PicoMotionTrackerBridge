@@ -22,6 +22,8 @@ struct ReceiverConfig {
     bool exclusiveBind = false;
     bool rejectRetiredSessions = false;
     size_t maxRetiredSessions = 1024;
+    size_t maxTrackers = 256;
+    size_t maxPacketsPerPump = 256;
 };
 
 struct ReceivedTrackerState {
@@ -50,7 +52,7 @@ public:
     [[nodiscard]] uint16_t ListenPort() const noexcept { return socket_.BoundPort(); }
     [[nodiscard]] uint64_t ActiveSenderSessionId() const noexcept { return activeSenderSessionId_; }
 
-    // Non-blocking. Drains all currently queued datagrams, retaining only the
+    // Non-blocking. Processes at most maxPacketsPerPump datagrams, retaining only the
     // newest state per tracker serial. It also drives periodic clock sync once
     // an HMD sender endpoint has been learned.
     bool Pump(std::string* error = nullptr);
