@@ -1,5 +1,5 @@
 #pragma once
-#include "monaka/protocol/v1/codec.hpp"
+#include "monaka/protocol/v2/codec.hpp"
 #include "pico_ot_bridge/receiver.hpp"
 #include <functional>
 #include <map>
@@ -22,9 +22,9 @@ struct ObservationConfig {
 class PicoObservationAdapter {
 public:
     explicit PicoObservationAdapter(ObservationConfig config);
-    std::vector<monaka::protocol::v1::Envelope> Collect(
+    std::vector<monaka::protocol::v2::Envelope> Collect(
         const bridge::Receiver& receiver, int64_t nowPcNs);
-    bool StampSentAt(monaka::protocol::v1::Envelope& value, int64_t encodingPcNs) const;
+    bool StampSentAt(monaka::protocol::v2::Envelope& value, int64_t encodingPcNs) const;
     [[nodiscard]] uint64_t RejectedSamples() const noexcept { return rejected_; }
     [[nodiscard]] const std::string& SessionId() const noexcept { return session_; }
 private:

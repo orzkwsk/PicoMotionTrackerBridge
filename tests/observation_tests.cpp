@@ -9,7 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
-namespace p = monaka::protocol::v1;
+namespace p = monaka::protocol::v2;
 namespace b = pico_ot::bridge;
 void Check(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
 struct Rig {
@@ -90,11 +90,11 @@ void MappingAndStreams() {
     auto invalid=Pose(); invalid.positionValid=false; invalid.positionMeters={999,22,33};
     r.Pose(11,invalid); values=a.Collect(r.receiver,b::MonotonicNowNs()); RoundTrip(values);
     const auto& partial=Find<p::TrackerObservation>(values);
-    Check(!partial.validity.position && partial.validity.orientation && partial.tracking_state=="degraded","independent validity");
+    Check(!partial.validity.position && !partial.validity.orientation && partial.tracking_state=="lost" && partial.modality=="none","unverified PICO loss must fail closed");
     Check(partial.position->at(0)==999 && !partial.linear_velocity && partial.sequence==1,"diagnostics/velocity/independent sequence");
     invalid.positionValid=true; invalid.orientationSamplePresent=false; r.Pose(12,invalid);
     values=a.Collect(r.receiver,b::MonotonicNowNs()); RoundTrip(values);
-    Check(Find<p::TrackerObservation>(values).tracking_state=="degraded","position-only");
+    Check(Find<p::TrackerObservation>(values).tracking_state=="lost","incomplete capability fails closed");
     invalid.positionValid=false; r.Pose(13,invalid); values=a.Collect(r.receiver,b::MonotonicNowNs()); RoundTrip(values);
     Check(Find<p::TrackerObservation>(values).tracking_state=="lost","both components invalid");
 }

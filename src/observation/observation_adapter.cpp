@@ -5,7 +5,7 @@
 #include <utility>
 
 namespace pico_ot {
-namespace p = monaka::protocol::v1;
+namespace p = monaka::protocol::v2;
 namespace {
 bool Finite(const bridge::Vec3d& v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
 p::Vec3 Vec(const bridge::Vec3d& v) { return {v.x,v.y,v.z}; }
@@ -50,7 +50,7 @@ bool PicoObservationAdapter::StampSentAt(p::Envelope& value, int64_t now) const 
 }
 template<class T> void PicoObservationAdapter::Header(T& v, const std::string& serial,
     int64_t sequence, int64_t received, int64_t now) const {
-    v.version = {1,0}; v.source_id = config_.sourceId; v.session_id = session_; v.clock_id = clock_;
+    v.version = {2,0}; v.modality = "none"; v.source_id = config_.sourceId; v.session_id = session_; v.clock_id = clock_;
     v.sequence = sequence; v.timestamp_ns = received - config_.clockEpochPcNs;
     v.sent_at_ns = now - config_.clockEpochPcNs; v.timestamp_kind = "receive";
     v.device_id = serial;
@@ -94,6 +94,11 @@ std::vector<p::Envelope> PicoObservationAdapter::Collect(const bridge::Receiver&
                 if (std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w)) v.orientation = p::QuatXyzw{q.x,q.y,q.z,q.w};
                 v.validity.position = fresh && pose.positionValid && v.position.has_value();
                 v.validity.orientation = fresh && pose.orientationSamplePresent && OrientationSane(q);
+                // Sample sanity alone does not establish PICO rotation-only tracking
+                // during optical loss. Preserve diagnostics, but fail closed.
+                const bool full = v.validity.position && v.validity.orientation;
+                v.validity = {full, full};
+                v.modality = full ? "full" : "none";
                 v.orientation_evidence = v.validity.orientation ? "sample_sanity" : "none";
                 v.tracking_state = v.validity.position && v.validity.orientation ? "tracked" :
                     v.validity.position || v.validity.orientation ? "degraded" : "lost";
