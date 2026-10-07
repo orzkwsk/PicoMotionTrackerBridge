@@ -1,0 +1,29 @@
+name: Bridge host and HIL capture verification
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+  workflow_dispatch:
+jobs:
+  host:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Configure host (no SDK or SteamVR)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --parallel 2
+      - name: Existing and capture C++ tests
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Windows UDP capture and .NET QPC acceptance
+        if: runner.os == 'Windows'
+        run: python tests/capture_cli_test.py build/Release/pico_bridge_capture_cli.exe -v
+      - name: POSIX standalone synthetic UDP capture
+        if: runner.os != 'Windows'
+        run: python tests/capture_cli_test.py build/pico_bridge_capture_cli -v

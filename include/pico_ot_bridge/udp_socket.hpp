@@ -31,6 +31,10 @@ public:
 
     // bindPort=0 asks the OS for an ephemeral port.
     bool Open(uint16_t bindPort, bool nonBlocking, std::string* error = nullptr);
+
+    // Opt-in exclusive listener for packet capture. Existing Open callers retain
+    // their original reuse semantics; this never duplicates UDP delivery.
+    bool OpenExclusive(uint16_t bindPort, bool nonBlocking, std::string* error = nullptr);
     void Close() noexcept;
 
     [[nodiscard]] bool IsOpen() const noexcept;
@@ -50,6 +54,7 @@ public:
                                  std::string* error = nullptr);
 
 private:
+    bool OpenImpl(uint16_t bindPort, bool nonBlocking, bool exclusive, std::string* error);
     static constexpr uintptr_t kInvalidHandle = (std::numeric_limits<uintptr_t>::max)();
 
     uintptr_t handle_ = kInvalidHandle;

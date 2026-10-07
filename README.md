@@ -169,3 +169,8 @@ Detailed evidence and design notes are kept separately:
 ## Version 0.1 scope
 
 Version 0.1 should be treated as the first complete bridge milestone rather than a polished end-user release. The core tracking path is established and hardware-validated. Remaining work is primarily integration/packaging: final WPF smoke testing, headless Control Service separation, startup/persistence orchestration, and MonakaVR Utility integration.
+# HIL packet capture
+
+The standalone `pico_bridge_capture_cli` preserves original wire packets as
+NDJSON with PC QPC timestamps. See [HIL capture v1](docs/HIL_CAPTURE_V1.md) for
+exclusive receiver operation, lifecycle options and synthetic verification.
