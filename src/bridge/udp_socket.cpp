@@ -90,6 +90,14 @@ UdpSocket& UdpSocket::operator=(UdpSocket&& other) noexcept {
 }
 
 bool UdpSocket::Open(uint16_t bindPort, bool nonBlocking, std::string* error) {
+    return OpenImpl(bindPort, nonBlocking, false, error);
+}
+
+bool UdpSocket::OpenExclusive(uint16_t bindPort, bool nonBlocking, std::string* error) {
+    return OpenImpl(bindPort, nonBlocking, true, error);
+}
+
+bool UdpSocket::OpenImpl(uint16_t bindPort, bool nonBlocking, bool exclusive, std::string* error) {
     Close();
 
 #ifdef _WIN32
@@ -111,10 +119,21 @@ bool UdpSocket::Open(uint16_t bindPort, bool nonBlocking, std::string* error) {
 
     int reuse = 1;
 #ifdef _WIN32
-    ::setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR,
-                 reinterpret_cast<const char*>(&reuse), sizeof(reuse));
+    if (exclusive) {
+        if (::setsockopt(socketHandle, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                        reinterpret_cast<const char*>(&reuse), sizeof(reuse)) != 0) {
+            SetError(error, "exclusive bind option failed");
+            Close();
+            return false;
+        }
+    } else {
+        ::setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR,
+                     reinterpret_cast<const char*>(&reuse), sizeof(reuse));
+    }
 #else
-    ::setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    if (!exclusive) {
+        ::setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    }
 #endif
 
     sockaddr_in local{};
