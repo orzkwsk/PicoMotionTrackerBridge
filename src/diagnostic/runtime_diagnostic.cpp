@@ -94,6 +94,10 @@ void RuntimeDiagnostic::Worker() {
         event=std::move(queue_[read]);
         read_.store((read+1)%queue_.size(),std::memory_order_release);
         try {
+            // Observation timestamps stay immutable. Report only same-domain
+            // enqueue/writer lag so HIL does not rejuvenate queued samples.
+            event["details"]["diagnostic_delivery_age_ns"]=(std::max)(int64_t{0},
+                bridge::MonotonicNowNs()-event["monotonic_ns"].get<int64_t>());
             // Counters travel on every successfully written event, including the final summary.
             event["details"]["dropped_diagnostic_events"]=dropped_.load();
             event["details"]["dropped_events"]=dropped_.load();
@@ -108,7 +112,7 @@ void RuntimeDiagnostic::Worker() {
         {"component","PicoMotionTrackerBridge"},{"event_type","diagnostic_summary"},
         {"source","pico_pc_receiver"},{"tracker_identity",nullptr},{"role",nullptr},
         {"session",nullptr},{"validity",nullptr},{"build",Build()},
-        {"details",{{"dropped_diagnostic_events",dropped_.load()},{"dropped_events",dropped_.load()},{"critical_dropped_events",criticalDropped_.load()},
+        {"details",{{"diagnostic_delivery_age_ns",0},{"dropped_diagnostic_events",dropped_.load()},{"dropped_events",dropped_.load()},{"critical_dropped_events",criticalDropped_.load()},
           {"observation_complete",Complete()},{"writer_failed",writeFailed_.load()}}}}.dump()); }
     catch (...) { writeFailed_=true; }
 }
