@@ -85,7 +85,9 @@ void RuntimeDiagnostic::Worker() {
         Json event;
         auto read=read_.load(std::memory_order_relaxed);
         if(read==write_.load(std::memory_order_acquire)) {
-            if(stopping_.load()) break;
+            // Stop may publish terminal events between the empty read and the
+            // stopping flag. Re-read after observing Stop before declaring drained.
+            if(stopping_.load() && read==write_.load(std::memory_order_acquire)) break;
             std::unique_lock<std::mutex> lock(mutex_);
             wake_.wait_for(lock,std::chrono::milliseconds(10)); continue;
         }
