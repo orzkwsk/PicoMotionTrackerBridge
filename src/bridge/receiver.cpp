@@ -251,6 +251,10 @@ bool Receiver::Pump(std::string* error) {
         }
 
         HandlePacket(decoded, source, MonotonicNowNs());
+        if (diagnosticObserver_) {
+            // Diagnostics must never propagate failure into transport behavior.
+            try { diagnosticObserver_(); } catch (...) {}
+        }
     }
 
     return MaybeSendTimeSync(MonotonicNowNs(), error);

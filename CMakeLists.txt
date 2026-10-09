@@ -104,6 +104,17 @@ else()
 endif()
 
 if(NOT ANDROID)
+    add_custom_target(pico_diagnostic_provenance
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/diagnostic_provenance.py"
+            --source "${CMAKE_CURRENT_SOURCE_DIR}" --output "${CMAKE_BINARY_DIR}/diagnostic-generated"
+        BYPRODUCTS "${CMAKE_BINARY_DIR}/diagnostic-generated/pico_diagnostic_build.hpp"
+            "${CMAKE_BINARY_DIR}/diagnostic-generated/pico-build-provenance.json")
+    add_library(pico_runtime_diagnostic STATIC src/diagnostic/runtime_diagnostic.cpp)
+    add_dependencies(pico_runtime_diagnostic pico_diagnostic_provenance)
+    target_compile_features(pico_runtime_diagnostic PUBLIC cxx_std_17)
+    target_include_directories(pico_runtime_diagnostic PUBLIC include
+        third_party/monaka-protocol-v2/cpp/third_party PRIVATE "${CMAKE_BINARY_DIR}/diagnostic-generated")
+    target_link_libraries(pico_runtime_diagnostic PUBLIC PicoOT::BridgeTransport)
     # Task 1's verified kit is a PC-only dependency. Never add JSON to the HMD NDK ABI.
     add_subdirectory(third_party/monaka-protocol-v2/cpp EXCLUDE_FROM_ALL)
     add_library(pico_observation_provider STATIC
@@ -133,7 +144,10 @@ if(NOT ANDROID)
             tools/pc_bridge_service.cpp)
         target_compile_features(pico_ot_bridge_service PRIVATE cxx_std_17)
         target_link_libraries(pico_ot_bridge_service PRIVATE
-            PicoOT::BridgePublisher PicoOT::BridgeTransport pico_observation_provider)
+            PicoOT::BridgePublisher PicoOT::BridgeTransport pico_observation_provider pico_runtime_diagnostic)
+        add_custom_command(TARGET pico_ot_bridge_service POST_BUILD
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/diagnostic_provenance.py"
+            --output "${CMAKE_BINARY_DIR}/diagnostic-generated" --binary "$<TARGET_FILE:pico_ot_bridge_service>")
         target_compile_options(pico_ot_bridge_service PRIVATE /W4 /permissive-)
     endif()
 endif()
@@ -208,6 +222,17 @@ endif()
 
 if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     enable_testing()
+    add_executable(pico_runtime_diagnostic_tests tests/runtime_diagnostic_tests.cpp)
+    target_link_libraries(pico_runtime_diagnostic_tests PRIVATE pico_runtime_diagnostic PicoOT::BridgePublisher)
+    if(WIN32)
+        target_link_libraries(pico_runtime_diagnostic_tests PRIVATE psapi)
+    endif()
+    add_test(NAME pico_runtime_diagnostic_tests COMMAND pico_runtime_diagnostic_tests)
+    if(WIN32)
+        add_test(NAME pico_diagnostic_build_mapping COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_diagnostic_build.py"
+            "$<TARGET_FILE:pico_ot_bridge_service>" "${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
     add_test(NAME monaka_protocol_v2_kit_integrity COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_protocol_v2.py)
     add_executable(pico_observation_tests tests/observation_tests.cpp)
     target_link_libraries(pico_observation_tests PRIVATE pico_observation_provider PicoOT::BridgePublisher)
