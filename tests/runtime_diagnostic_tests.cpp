@@ -94,6 +94,19 @@ void Backpressure() {
     RuntimeDiagnostic broken; broken.StartForTest([](const std::string&){throw std::runtime_error("synthetic sink failure");});
     broken.Event("fatal_error"); broken.Stop(); REQUIRE(!broken.Complete());
 }
+void ImmediateStopDrain() {
+    for(int attempt=0;attempt<100;++attempt) {
+        size_t count=0; bool stopped=false,summary=false;
+        RuntimeDiagnostic d;
+        d.StartForTest([&](const std::string& s) {
+            auto event=Json::parse(s); ++count;
+            if(event["event_type"]=="component_stopped") stopped=true;
+            if(event["event_type"]=="diagnostic_summary") { REQUIRE(stopped); summary=true; }
+        });
+        for(int i=0;i<20;++i) d.Event("diagnostic_warning",{{"synthetic",true}});
+        d.Stop(); REQUIRE(count==25); REQUIRE(stopped&&summary); REQUIRE(d.Complete());
+    }
+}
 void Smoke() {
     auto measure=[](const char* name,bool on,bool active) {
         Receiver r; ReceiverConfig rc; rc.listenPort=0; REQUIRE(r.Start(rc));
@@ -126,6 +139,6 @@ void Smoke() {
 }
 }
 int main(int argc,char** argv){
-    try { if(argc>1)fixturePath=argv[1]; Lifecycle();Backpressure();Smoke();std::cout<<"runtime diagnostic tests passed\n"; }
+    try { if(argc>1)fixturePath=argv[1]; Lifecycle();Backpressure();ImmediateStopDrain();Smoke();std::cout<<"runtime diagnostic tests passed\n"; }
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
