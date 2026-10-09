@@ -54,6 +54,8 @@ void Lifecycle() {
         REQUIRE(e["schema_version"]==1); REQUIRE(e["role"].is_null());
         REQUIRE(e.contains("timestamp_utc")&&e.contains("validity")&&e.contains("session"));
         REQUIRE(e["monotonic_ns"].is_number_integer()); auto now=e["monotonic_ns"].get<uint64_t>();
+        REQUIRE(e["details"]["diagnostic_delivery_age_ns"].is_number_integer());
+        REQUIRE(e["details"]["diagnostic_delivery_age_ns"].get<int64_t>()>=0);
         REQUIRE(first||now>=last); first=false; last=now;
         if(!e["tracker_identity"].is_null()) {
             REQUIRE(e["tracker_identity"]["domain"]=="hardware_serial");

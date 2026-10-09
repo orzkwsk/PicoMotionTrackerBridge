@@ -27,6 +27,10 @@ instrumented in this phase.
   sample-sanity evidence (norm 0.5 to 1.5), not a vendor-authoritative optical or
   rotation-only claim. Diagnostic component flags remain independent; production
   observation output still fails closed to modality none unless both are valid.
+  Event monotonic/UTC timestamps are captured on the producer at observation.
+  The writer adds diagnostic_delivery_age_ns in the same source clock domain;
+  pose details include sample_receive_monotonic_ns. HIL can preserve source
+  sample age plus queue delay without subtracting clocks from different processes.
 - First pose and first valid position reset for each observed sender token change
   or source-observation reconnect. Cached poses from before the reconnect boundary
   cannot count as first poses. A 1-second absence of accepted pose/device state
