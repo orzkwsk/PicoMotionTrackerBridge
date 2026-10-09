@@ -5,6 +5,7 @@
 #include "pico_ot_bridge/udp_socket.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -57,6 +58,10 @@ public:
     // an HMD sender endpoint has been learned.
     bool Pump(std::string* error = nullptr);
 
+    // Optional side-channel only. Called within Pump after each decoded packet so
+    // latest-only cache updates cannot hide intermediate diagnostic transitions.
+    void SetDiagnosticObserver(std::function<void()> observer) { diagnosticObserver_ = std::move(observer); }
+
     [[nodiscard]] std::vector<std::string> Serials() const;
     [[nodiscard]] const ReceivedTrackerState* Find(const std::string& serial) const;
 
@@ -88,6 +93,7 @@ private:
     uint64_t pendingTimeSyncNonce_ = 0;
     int64_t pendingTimeSyncT0_ = 0;
     int64_t lastTimeSyncSendNs_ = 0;
+    std::function<void()> diagnosticObserver_;
 };
 
 }  // namespace pico_ot::bridge

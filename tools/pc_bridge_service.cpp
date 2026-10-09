@@ -4,6 +4,7 @@
 #include "pico_ot_bridge/service_contract.hpp"
 #include "pico_ot_backend/observation_identity.hpp"
 #include "pico_ot_backend/observation_publisher.hpp"
+#include "pico_ot_backend/runtime_diagnostic.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -362,11 +363,18 @@ void PublishStatus(StatusMapping& status,
 int main(int argc, char** argv) {
     uint16_t observationPort = 29810;
     std::filesystem::path identityPath;
+    std::string diagnosticPath;
     try {
         for (int i=1;i<argc;++i) {
             const std::string option=argv[i];
+            if (option=="--version") {
+                const auto build=pico_ot::RuntimeDiagnostic::Build();
+                if(i+1<argc && std::string(argv[i+1])=="--json") std::cout << build.dump() << '\n';
+                else std::cout << build["component_name"].get<std::string>() << ' ' << build["version"].get<std::string>() << ' ' << build["git_commit"].get<std::string>() << '\n';
+                return 0;
+            }
             if (option=="--help") {
-                std::cout << "PICO PC service [--observation-port PORT] [--observation-config PATH]\n";
+                std::cout << "PICO PC service [--observation-port PORT] [--observation-config PATH] [--diagnostic-jsonl PATH] [--version [--json]]\n";
                 return 0;
             }
             if (i+1>=argc) throw std::invalid_argument("missing option value");
@@ -377,6 +385,7 @@ int main(int argc, char** argv) {
                 if (port==0 || port>65535 || (port>=29765 && port<=29768)) throw std::invalid_argument("invalid/reserved Observation port");
                 observationPort=static_cast<uint16_t>(port);
             } else if (option=="--observation-config") identityPath=std::filesystem::u8path(value);
+            else if(option=="--diagnostic-jsonl") diagnosticPath=value;
             else throw std::invalid_argument("unknown option");
         }
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
@@ -395,6 +404,9 @@ int main(int argc, char** argv) {
     }
 
     SetConsoleCtrlHandler(ConsoleHandler, TRUE);
+    pico_ot::RuntimeDiagnostic diagnostic;
+    if(!diagnosticPath.empty() && !diagnostic.Start(diagnosticPath))
+        std::cerr << "Diagnostic output unavailable; production service continues.\n";
 
     HANDLE routeUpdatedEvent = CreateEventW(
         nullptr,
@@ -420,17 +432,22 @@ int main(int argc, char** argv) {
 
     std::string error;
     if (!receiver.Start(receiverConfig, &error)) {
+        diagnostic.Event("fatal_error",{{"operation","HMD ingress Start"},{"message",error}});
         std::cerr << "Failed to start HMD ingress receiver on UDP "
                   << receiverConfig.listenPort << ": " << error << '\n';
         CloseHandle(routeUpdatedEvent);
         CloseHandle(instanceMutex);
         return 4;
     }
+    if(diagnostic.Enabled()) receiver.SetDiagnosticObserver([&] {
+        diagnostic.Poll(receiver,pico_ot::bridge::MonotonicNowNs());
+    });
 
     OutputSink steamVr{"SteamVR", pico_ot::bridge::kSteamVrFanoutPort};
     OutputSink monaka{"MonakaVR", pico_ot::bridge::kMonakaFanoutPort};
     OutputSink utility{"Utility", pico_ot::bridge::kUtilityFanoutPort};
     if (!StartSink(steamVr) || !StartSink(monaka) || !StartSink(utility)) {
+        diagnostic.Event("fatal_error",{{"operation","fanout Start"}});
         receiver.Stop();
         CloseHandle(routeUpdatedEvent);
         ReleaseMutex(instanceMutex);
@@ -476,6 +493,7 @@ int main(int argc, char** argv) {
     int64_t nextRoutePollNs = 0;
     int64_t nextStatusPublishNs = 0;
     bool receiverErrorLogged = false;
+    diagnostic.Event("component_ready",{{"inventory_complete",false},{"inventory_boundary","accepted receiver packets only"}});
 
     while (gRun.load()) {
         const int64_t nowNs = pico_ot::bridge::MonotonicNowNs();
@@ -502,11 +520,13 @@ int main(int argc, char** argv) {
         if (!receiver.Pump(&error)) {
             if (!receiverErrorLogged) {
                 std::cerr << "HMD ingress receiver error: " << error << '\n';
+                diagnostic.Event("diagnostic_warning",{{"operation","receiver Pump"},{"message",error}});
                 receiverErrorLogged = true;
             }
         } else {
             receiverErrorLogged = false;
         }
+        diagnostic.Poll(receiver,nowNs);
 
         PumpSinkControl(steamVr);
         PumpSinkControl(monaka);
