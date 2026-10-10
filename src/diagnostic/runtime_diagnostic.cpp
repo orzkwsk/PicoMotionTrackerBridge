@@ -134,18 +134,42 @@ void RuntimeDiagnostic::Poll(const bridge::Receiver& receiver,int64_t nowNs) noe
     if(!Enabled()) return;
     try {
         auto sender=receiver.ActiveSenderSessionId();
-        int64_t latest=0;
-        for(auto& serial:receiver.Serials()) { auto* p=receiver.Find(serial); if(p) latest=(std::max)(latest,(std::max)(p->lastPoseReceivePcNs,p->lastDeviceReceivePcNs)); }
+        int64_t latest=0, latestPose=0, latestDevice=0;
+        for(auto& serial:receiver.Serials()) { auto* p=receiver.Find(serial); if(p) {
+            latest=(std::max)(latest,(std::max)(p->lastPoseReceivePcNs,p->lastDeviceReceivePcNs));
+            latestPose=(std::max)(latestPose,p->lastPoseReceivePcNs);
+            latestDevice=(std::max)(latestDevice,p->lastDeviceReceivePcNs);
+        } }
+        // Freeze the inputs before evaluating this invocation's unchanged live
+        // predicate. Event creation/writer clocks must never replace Poll nowNs.
+        const int64_t freshnessAge=nowNs-latest;
+        const bool senderPresent=sender!=0, latestPresent=latest>0;
+        const bool nowGeLatest=nowNs>=latest;
+        const bool withinThreshold=nowGeLatest&&freshnessAge<=1'000'000'000LL;
+        const bool sameSender=sender==sender_;
+        const auto predicateDetails=[=]() -> Json {
+            return {{"diagnostic_poll_now_ns",nowNs},{"latest_receive_monotonic_ns",latest},
+                {"latest_pose_receive_monotonic_ns",latestPose},{"latest_device_receive_monotonic_ns",latestDevice},
+                {"freshness_age_ns",freshnessAge},{"freshness_threshold_ns",1'000'000'000LL},
+                {"sender_present",senderPresent},{"latest_present",latestPresent},
+                {"now_ge_latest",nowGeLatest},{"within_freshness_threshold",withinThreshold},
+                {"sender_same_as_previous",sameSender},
+                {"latest_receive_kind",latest==0?"none":latestPose==latestDevice?"tie":latestPose>latestDevice?"pose":"device_state"}};
+        };
         bool live=sender!=0 && latest>0 && nowNs>=latest && nowNs-latest<=1'000'000'000LL;
         if (sender!=sender_ || (live&&!connected_)) {
             if(sender_&&connected_) { state_="disconnected"; Event("session_disconnected",{{"reason","sender_session_changed"}}); Retire("session_boundary"); }
-            if(sender_ || generation_) { state_="reconnecting"; Event("session_reconnecting"); }
+            if(sender_ || generation_) { state_="reconnecting"; Event("session_reconnecting",predicateDetails()); }
             sender_=sender;
-            if(live) { ++generation_; connected_=true; sessionBoundaryNs_=latest; state_="connected"; Event("session_connected",{{"boundary","accepted POTB packet"}}); }
+            if(live) { ++generation_; connected_=true; sessionBoundaryNs_=latest; state_="connected";
+                auto details=predicateDetails(); details["boundary"]="accepted POTB packet";
+                Event("session_connected",std::move(details)); }
         }
         if(!live&&connected_) {
             connected_=false; state_="disconnected";
-            Event("session_disconnected",{{"reason","source_observation_timeout"},{"transport_disconnect_authoritative",false}});
+            auto details=predicateDetails(); details["reason"]="source_observation_timeout";
+            details["transport_disconnect_authoritative"]=false;
+            Event("session_disconnected",std::move(details));
             Retire("source_observation_timeout");
         }
         if(!connected_) return;

@@ -228,6 +228,9 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
         target_link_libraries(pico_runtime_diagnostic_tests PRIVATE psapi)
     endif()
     add_test(NAME pico_runtime_diagnostic_tests COMMAND pico_runtime_diagnostic_tests)
+    add_executable(pico_timeout_attribution_tests tests/timeout_attribution_tests.cpp)
+    target_link_libraries(pico_timeout_attribution_tests PRIVATE pico_runtime_diagnostic pico_observation_provider PicoOT::BridgePublisher)
+    add_test(NAME pico_timeout_attribution_tests COMMAND pico_timeout_attribution_tests)
     if(WIN32)
         add_test(NAME pico_diagnostic_build_mapping COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_diagnostic_build.py"
