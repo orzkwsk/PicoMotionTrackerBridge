@@ -526,7 +526,7 @@ int main(int argc, char** argv) {
         } else {
             receiverErrorLogged = false;
         }
-        diagnostic.Poll(receiver,nowNs);
+        diagnostic.Poll(receiver,pico_ot::bridge::MonotonicNowNs());
 
         PumpSinkControl(steamVr);
         PumpSinkControl(monaka);
