@@ -2,6 +2,8 @@
 
 This document defines the Windows-side control-plane boundary for the PICO OT SteamVR output.
 
+Implementation: the .NET 8 headless owner and WPF pipe client are described in [CONTROL_UI.md](CONTROL_UI.md). The logical endpoint below is qualified with the Windows login-session ID; existing driver IPC is unchanged.
+
 ## Goal
 
 Keep the SteamVR runtime service path and the user-facing GUI independently runnable and independently replaceable.
@@ -88,7 +90,7 @@ Closing the GUI must not stop the control service or tracker output.
 
 Use a local Windows Named Pipe as the stable frontend boundary.
 
-Initial pipe name:
+Versioned pipe-name prefix:
 
 ```text
 PicoOTBridge.Control.v1

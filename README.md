@@ -25,7 +25,7 @@ Validated areas include:
 - controller-reference translation calibration;
 - manual XYZ adjustment at 1 mm steps, Shift+click 10 mm adjustment, Apply/Save/Load workflow, and unsaved-state warning.
 
-The WPF control GUI migration is included in the current 0.1 codebase. The latest WPF reference-resolution fix should still receive a final local smoke test before treating that UI path as fully validated; the bridge/output behavior itself was already validated through the preceding control GUI implementation.
+The existing WPF control layout now uses a .NET 8 headless control service and asynchronous ViewModel/client boundary. Run `Start_GUI.cmd`; see [control UI](docs/CONTROL_UI.md). Native/software and offscreen WPF checks are separate from interactive and physical HIL validation.
 
 ## Architecture
 
@@ -59,7 +59,7 @@ world-alignment / diagnostic IPC
 SteamVR driver
 ```
 
-A separate headless Control Service is the intended next integration step so the GUI and future MonakaVR Utility can become clients instead of talking to driver IPC directly.
+The headless Control Service owns normal driver IPC, persistence and calibration orchestration; the WPF GUI is its pipe client. Future MonakaVR Utility can use the same versioned frontend boundary.
 
 ## Runtime compatibility
 
@@ -163,9 +163,9 @@ Detailed evidence and design notes are kept separately:
 - `docs/RUNTIME_VALIDATION.md` — backend hardware/runtime validation;
 - `docs/STEAMVR_VALIDATION_STATUS.md` — SteamVR coordinate and prediction validation status;
 - `docs/STEAMVR_COORDINATE_VALIDATION.md` — coordinate/alignment investigation;
-- `docs/STEAMVR_CONTROL_SERVICE.md` — intended GUI/service separation;
+- `docs/STEAMVR_CONTROL_SERVICE.md` — implemented GUI/service separation and original design;
 - `docs/KNOWN_LIMITATIONS.md` — known constraints and provisional fields.
 
 ## Version 0.1 scope
 
-Version 0.1 should be treated as the first complete bridge milestone rather than a polished end-user release. The core tracking path is established and hardware-validated. Remaining work is primarily integration/packaging: final WPF smoke testing, headless Control Service separation, startup/persistence orchestration, and MonakaVR Utility integration.
+Version 0.1 should be treated as the first complete bridge milestone rather than a polished end-user release. The core tracking path is established and hardware-validated. The control-service/frontend software boundary is implemented. Interactive GUI and physical restart/calibration/output HIL, final packaging and MonakaVR Utility integration remain separate gates.
