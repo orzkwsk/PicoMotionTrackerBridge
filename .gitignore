@@ -16,3 +16,7 @@ BackendTestApp/local.properties
 BackendTestApp/native-build/
 BackendTestApp/app/build/
 BackendTestApp/app/src/main/jniLibs/
+
+# .NET control frontend builds
+ui/**/bin/
+ui/**/obj/

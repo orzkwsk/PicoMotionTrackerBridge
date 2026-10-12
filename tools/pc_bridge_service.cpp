@@ -1,3 +1,5 @@
+#include "pico_ot_bridge/control_status.hpp"
+#include <cmath>
 #include "pico_ot_bridge/monotonic_clock.hpp"
 #include "pico_ot_bridge/publisher.hpp"
 #include "pico_ot_bridge/receiver.hpp"
@@ -357,6 +359,43 @@ void PublishStatus(StatusMapping& status,
     ++status.state->generation;
 }
 
+// Optional control-plane status cannot disable or block the normal pose path.
+struct FrontendStatusMapping {
+    HANDLE mapping = nullptr;
+    pico_ot::bridge::ControlStatus* state = nullptr;
+    FrontendStatusMapping() {
+        mapping = CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,
+            sizeof(pico_ot::bridge::ControlStatus),pico_ot::bridge::kControlStatusMapping);
+        if (mapping) state = static_cast<pico_ot::bridge::ControlStatus*>(MapViewOfFile(mapping,FILE_MAP_WRITE,0,0,sizeof(*state)));
+        if (state) { std::memset(state,0,sizeof(*state)); state->magic=0x43544F50; state->version=1; }
+    }
+    ~FrontendStatusMapping() { if(state) UnmapViewOfFile(state); if(mapping) CloseHandle(mapping); }
+    void publish(const Receiver& receiver,ServiceOutputRoute route) {
+        if(!state) return;
+        InterlockedIncrement64(&state->sequence); MemoryBarrier();
+        state->uptimeMs=GetTickCount64(); state->pid=GetCurrentProcessId();
+        state->route=static_cast<std::uint32_t>(route); state->count=0;
+        auto serials=receiver.Serials(); std::sort(serials.begin(),serials.end());
+        const auto now=pico_ot::bridge::MonotonicNowNs();
+        for(const auto& serial:serials) {
+            if(state->count==5) break;
+            const auto* source=receiver.Find(serial); if(!source) continue;
+            auto& row=state->devices[state->count++]; row={};
+            std::memcpy(row.serial,serial.data(),std::min(serial.size(),sizeof(row.serial)-1));
+            row.ageMs=source->hasPoseSequence ? std::max<int64_t>(0,(now-source->lastPoseReceivePcNs)/1000000) : -1;
+            const auto& pose=source->pose;
+            const auto& q=pose.orientationXyzw;
+            const double norm=std::hypot(std::hypot(q.x,q.y),std::hypot(q.z,q.w));
+            const bool full=source->hasPoseSequence && pose.referenceFrame==0 && pose.positionValid &&
+                pose.orientationSamplePresent && std::isfinite(pose.positionMeters.x) && std::isfinite(pose.positionMeters.y) &&
+                std::isfinite(pose.positionMeters.z) && std::isfinite(norm) && norm>=0.5 && norm<=1.5;
+            const bool connected=source->deviceState && (!source->hasPoseSequence || source->lastDeviceReceivePcNs>source->lastPoseReceivePcNs) ? source->deviceState->connectedSnapshot : pose.connectedSnapshot;
+            row.flags=(connected ? 1u : 0u)|(source->hasPoseSequence ? 2u : 0u)|(full ? 12u : 0u);
+        }
+        MemoryBarrier(); InterlockedIncrement64(&state->sequence);
+    }
+};
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -410,6 +449,8 @@ int main(int argc, char** argv) {
     StatusMapping status;
     OpenStatusMapping(status);
 
+    FrontendStatusMapping frontendStatus;
+    HANDLE frontendStop = CreateEventW(nullptr,FALSE,FALSE,pico_ot::bridge::kControlStopEvent);
     Receiver receiver;
     ReceiverConfig receiverConfig;
     receiverConfig.listenPort = pico_ot::bridge::kHmdIngressPort;
@@ -475,9 +516,11 @@ int main(int argc, char** argv) {
 
     int64_t nextRoutePollNs = 0;
     int64_t nextStatusPublishNs = 0;
+    int64_t nextFrontendStatusNs = 0;
     bool receiverErrorLogged = false;
 
     while (gRun.load()) {
+        if (frontendStop && WaitForSingleObject(frontendStop,0)==WAIT_OBJECT_0) break;
         const int64_t nowNs = pico_ot::bridge::MonotonicNowNs();
 
         bool reloadRoute = false;
@@ -528,6 +571,9 @@ int main(int argc, char** argv) {
             nextStatusPublishNs = nowNs + 250'000'000LL;
         }
 
+        if (nowNs >= nextFrontendStatusNs) {
+            frontendStatus.publish(receiver,route); nextFrontendStatusNs = nowNs + 250000000LL;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
@@ -537,6 +583,7 @@ int main(int argc, char** argv) {
     monaka.publisher.Stop();
     utility.publisher.Stop();
     receiver.Stop();
+    if(frontendStop) CloseHandle(frontendStop);
     CloseHandle(routeUpdatedEvent);
     ReleaseMutex(instanceMutex);
     CloseHandle(instanceMutex);
