@@ -23,7 +23,29 @@ std::optional<p::Battery> Battery(const bridge::ReceivedTrackerState& state, int
     return battery;
 }
 }
+AdmissionResult ApplyPicoAdmission(p::TrackerObservation& v, const bridge::PosePacket& pose,
+    int64_t time, bool fresh, PicoReacquireAdmission& gate) {
+    if (Finite(pose.positionMeters)) v.position=Vec(pose.positionMeters);
+    const auto& q=pose.orientationXyzw;
+    if (std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w))
+        v.orientation=p::QuatXyzw{q.x,q.y,q.z,q.w};
+    const bool rawFull=pose.positionValid && pose.orientationSamplePresent &&
+        v.position.has_value() && OrientationSane(q);
+    const auto result=gate.Process(pose,time,rawFull,fresh);
+    const bool full=result.effective_valid;
+    v.validity={full,full}; v.modality=full ? "full" : "none";
+    v.orientation_evidence=full ? "sample_sanity" : "none";
+    v.tracking_state=full ? "tracked" : "lost";
+    v.linear_velocity.reset(); v.angular_velocity.reset(); v.linear_acceleration.reset();
+    if (full && Finite(pose.linearVelocityMetersPerSec))
+        v.linear_velocity=p::Derivative{Vec(pose.linearVelocityMetersPerSec),"space","measured"};
+    // Enabled-gate raw pose is capture-only until admitted. Disabled mode keeps
+    // the exact historical diagnostic numeric fields and validity semantics.
+    if (gate.Enabled() && !full) { v.position.reset(); v.orientation.reset(); }
+    return result;
+}
 PicoObservationAdapter::PicoObservationAdapter(ObservationConfig config) : config_(std::move(config)) {
+    config_.admission.Validate();
     if (!config_.newUuid || !config_.nextSpaceRevision || config_.clockEpochPcNs < 0 ||
         config_.staleTimeoutNs <= 0 || config_.maxDevices == 0) throw std::invalid_argument("invalid Observation configuration");
     session_ = config_.newUuid(); clock_ = config_.newUuid();
@@ -74,7 +96,7 @@ std::vector<p::Envelope> PicoObservationAdapter::Collect(const bridge::Receiver&
         const auto* state = receiver.Find(serial);
         if (!state || state->senderSessionId != sender_) continue;
         if (!progress_.count(serial) && progress_.size() >= config_.maxDevices) { ++rejected_; continue; }
-        auto& seen = progress_[serial];
+        auto& seen = progress_.try_emplace(serial,config_.admission,config_.staleTimeoutNs).first->second;
         auto admit = [&](p::Envelope value) {
             std::string wire; p::Error error;
             if (p::EncodeEnvelope(value,wire,error)) output.push_back(std::move(value));
@@ -89,21 +111,11 @@ std::vector<p::Envelope> PicoObservationAdapter::Collect(const bridge::Receiver&
                 Header(v,serial,seen.nextPose++,received,now);
                 const auto& pose = state->pose;
                 const bool fresh = now-received <= config_.staleTimeoutNs;
-                if (Finite(pose.positionMeters)) v.position = Vec(pose.positionMeters);
-                const auto& q = pose.orientationXyzw;
-                if (std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w)) v.orientation = p::QuatXyzw{q.x,q.y,q.z,q.w};
-                v.validity.position = fresh && pose.positionValid && v.position.has_value();
-                v.validity.orientation = fresh && pose.orientationSamplePresent && OrientationSane(q);
-                // Sample sanity alone does not establish PICO rotation-only tracking
-                // during optical loss. Preserve diagnostics, but fail closed.
-                const bool full = v.validity.position && v.validity.orientation;
-                v.validity = {full, full};
-                v.modality = full ? "full" : "none";
-                v.orientation_evidence = v.validity.orientation ? "sample_sanity" : "none";
-                v.tracking_state = v.validity.position && v.validity.orientation ? "tracked" :
-                    v.validity.position || v.validity.orientation ? "degraded" : "lost";
-                if (v.validity.position && Finite(pose.linearVelocityMetersPerSec))
-                    v.linear_velocity = p::Derivative{Vec(pose.linearVelocityMetersPerSec),"space","measured"};
+                const auto admission=ApplyPicoAdmission(v,pose,received,fresh,seen.admission);
+                if (config_.admissionDiagnostic) {
+                    try { config_.admissionDiagnostic(pose,admission,v); }
+                    catch (...) { ++diagnosticErrors_; }
+                }
                 // Angular frame and acceleration/gravity semantics are unresolved.
                 v.battery = Battery(*state,config_.clockEpochPcNs,now);
                 admit(std::move(v));

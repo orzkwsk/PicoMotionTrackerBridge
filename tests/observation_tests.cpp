@@ -1,6 +1,7 @@
 #include "pico_ot_backend/observation_adapter.hpp"
 #include "pico_ot_backend/observation_identity.hpp"
 #include "pico_ot_backend/observation_publisher.hpp"
+#include "pico_ot_backend/admission_diagnostic.hpp"
 #include "pico_ot_bridge/monotonic_clock.hpp"
 #include "pico_ot_bridge/publisher.hpp"
 #include <array>
@@ -173,8 +174,69 @@ void Identity() {
     { pico_ot::ObservationIdentity next(path); Check(next.SourceId()==source && next.SpaceId()==space && next.Revision()==revision+1,"restart identity/revision"); }
     Check(std::filesystem::remove(path),"identity cleanup");
 }
+void AdmissionBoundary() {
+    Rig r;auto config=r.Config();config.admission={true,0,3};
+    std::vector<pico_ot::AdmissionResult> diagnostics;
+    config.admissionDiagnostic=[&](const auto& raw,const auto& result,const auto& v) {
+        Check(raw.positionMeters.x==1 && raw.orientationXyzw.w==1.2,"raw capture altered");
+        Check(result.effective_valid==v.validity.position,"diagnostic/effective mismatch");
+        const auto json=pico_ot::AdmissionDiagnosticJson(raw,result,v);
+        Check(json.at("raw_position").at(0)==1 && json.at("raw_quaternion").at(3)==1.2 &&
+            json.at("session_id")==v.session_id && json.at("native_tracking_state")==4,
+            "machine-readable raw diagnostics missing");
+        diagnostics.push_back(result);
+    };
+    pico_ot::PicoObservationAdapter a(config);
+    p::TrackerObservation baseline;
+    for (uint32_t i=0;i<8;++i) {
+        auto pose=Pose();pose.positionValid=i!=0 && i!=4;
+        r.Pose(i,pose);auto values=a.Collect(r.receiver,b::MonotonicNowNs());RoundTrip(values);
+        const auto v=Find<p::TrackerObservation>(values);
+        if(i==0) baseline=v;
+        Check(v.source_id==baseline.source_id && v.device_id==baseline.device_id &&
+            v.session_id==baseline.session_id && v.clock_id==baseline.clock_id &&
+            v.coordinate_space.id==baseline.coordinate_space.id &&
+            v.coordinate_space.convention==baseline.coordinate_space.convention &&
+            v.coordinate_space.revision==baseline.coordinate_space.revision &&
+            v.capabilities==baseline.capabilities,"gate mutated contract/identity/space");
+        const bool admitted=i==3 || i==7;
+        Check(v.validity.position==admitted && v.validity.orientation==admitted,"effective admission mapping");
+        Check(v.position.has_value()==admitted && v.orientation.has_value()==admitted,"candidate raw pose entered protocol");
+        Check((v.modality=="full")==admitted && v.sequence==i,"gate sequence/modality");
+        if(i==1 || i==2) Check(diagnostics.back().raw_valid && !diagnostics.back().effective_valid &&
+            diagnostics.back().state==pico_ot::AdmissionState::Candidate,"raw/candidate validity split");
+        Check(r.receiver.ActiveSenderSessionId()==101 && r.revision==10,"gate coupled to transport/revision");
+    }
+    Check(diagnostics.size()==8,"diagnostic sample loss");
+    auto throwing=r.Config();throwing.admission={true,0,3};
+    throwing.admissionDiagnostic=[](const auto&,const auto&,const auto&) { throw std::runtime_error("test"); };
+    pico_ot::PicoObservationAdapter failClosed(throwing);
+    auto values=failClosed.Collect(r.receiver,b::MonotonicNowNs());
+    Check(!Find<p::TrackerObservation>(values).validity.position && failClosed.DiagnosticErrors()==1,
+        "capture failure bypassed admission");
+    pico_ot::PicoObservationAdapter recreated(config);
+    values=recreated.Collect(r.receiver,b::MonotonicNowNs());
+    Check(!Find<p::TrackerObservation>(values).validity.position,"admission persisted across recreation");
+}
+void AdmissionPacketBurst() {
+    Rig r;auto config=r.Config();config.admission={true,0,3};
+    std::vector<pico_ot::AdmissionState> states;
+    config.admissionDiagnostic=[&](const auto&,const auto& result,const auto&) { states.push_back(result.state); };
+    pico_ot::PicoObservationAdapter adapter(config);
+    r.receiver.SetDiagnosticObserver([&] { adapter.Collect(r.receiver,b::MonotonicNowNs()); });
+    for(uint32_t i=0;i<6;++i) {
+        auto pose=Pose();pose.positionValid=i!=3;
+        std::vector<uint8_t> data;Check(b::EncodePosePacket(101,i,pose,data),"burst encode");
+        std::string e;Check(r.sender.SendTo({"127.0.0.1",r.receiver.ListenPort()},data.data(),data.size(),&e),e.c_str());
+    }
+    r.Pump();
+    using S=pico_ot::AdmissionState;
+    Check(states==std::vector<S>{S::Candidate,S::Candidate,S::Admitted,S::Invalid,S::Candidate,S::Candidate},
+        "same-Pump invalid sample hidden by latest cache");
+    Check(adapter.Collect(r.receiver,b::MonotonicNowNs()).empty(),"loop republished accepted sample");
+}
 int main() {
-    try { MappingAndStreams(); SessionAndWrap(); ResyncAndStale(); CountsAndBind(); PublisherAndLegacy(); Identity(); }
+    try { MappingAndStreams(); SessionAndWrap(); ResyncAndStale(); CountsAndBind(); PublisherAndLegacy(); Identity(); AdmissionBoundary(); AdmissionPacketBurst(); }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
     std::cout << "PASS observation mapping, streams, resync/age, wrap/session, bounded cache, single bind, UDP/legacy, persistent identity\n";
 }
