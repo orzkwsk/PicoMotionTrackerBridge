@@ -14,13 +14,19 @@ Where the current Architecture Revision does not conflict, the existing Task 2 h
 
 For backend history and non-conflicting PICO-specific constraints, read `docs/codex/Task2_Pico_Backend.md` completely before making implementation changes. Treat its fixed-C1 sections as historical once the coordinated v2 handoff is active.
 
-## Codex Cloud branch handling
+## Branch policy and Codex Cloud handling
 
-Codex Cloud may expose its writable checkout as an internal branch named `work` rather than the GitHub branch name selected as the environment base. This is allowed.
+The repository now uses `dev` as the normal integration/development branch.
 
-For the historical Task 2 base, the required GitHub base was `refactor/pc-bridge-service-fanout`. For the current coordinated revision, continue only from the prepared `refactor/monaka-layer-separation` lineage (or a managed `work` checkout derived from it). Do not fail solely because the local writable branch is named `work`, and do not rewrite history to recreate branch names.
+- `main` is the stable/release baseline. Do not use it as the default implementation base for ongoing development.
+- `dev` is the current development integration line. New `feature/*`, `fix/*`, `refactor/*`, and `diagnostic/*` work should normally branch from the current `dev` HEAD and merge back to `dev`.
+- `dev` was established from the prepared Monaka layer-separation lineage after the HIL backend/APK synchronization work. The older `refactor/monaka-layer-separation` branch remains as historical/coordinated-work lineage and must not replace `dev` as the default base.
+- Existing topic branches remain valid history. Do not rewrite, rebase, delete, or force-update them merely to fit the current branch policy.
+- An active task may explicitly pin another branch or commit. A task-specific pinned base overrides the normal `dev` rule only for that task.
 
-If the checkout does not derive from the prepared lineage, stop and report the mismatch instead of implementing against `main` or another branch.
+Codex Cloud may expose its writable checkout as an internal branch named `work` rather than the GitHub branch name selected as the environment base. This is allowed. For ordinary new work, the checkout must derive from current `dev` (or from an explicitly pinned task base). Do not fail solely because the local writable branch is named `work`, and do not rewrite history to recreate branch names.
+
+If a normal new-work checkout does not derive from `dev`, stop and report the mismatch instead of silently implementing against `main` or an obsolete topic branch.
 
 ## Repository-wide constraints
 
