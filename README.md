@@ -6,6 +6,15 @@ Native PICO Motion Tracker bridge derived from the `Pico4Ultra_ResearchTools` na
 
 The project is split into a firmware-sensitive PICO backend and output/control layers. The backend normalizes PICO tracker state; consumers such as the SteamVR driver operate above that boundary.
 
+## Development branches
+
+- `main` — stable/release baseline.
+- `dev` — current development integration branch and the normal base for new work.
+- `feature/*`, `fix/*`, `refactor/*`, `diagnostic/*` — topic branches; normally branch from current `dev` and merge back to `dev`.
+- Older coordinated branches such as `refactor/monaka-layer-separation` are retained as development history and are not the default base for new tasks.
+
+Task-specific instructions may pin another branch or commit when reproducibility requires it. See `AGENTS.md` for Codex branch-handling rules.
+
 ## Current status
 
 Version 0.1 establishes the complete PICO -> PC -> SteamVR bridge path used in the current hardware validation environment.
