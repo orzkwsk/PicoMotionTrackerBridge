@@ -1,6 +1,7 @@
 #include "pico_ot_backend/backend.hpp"
 
 #include "internal/clock_mapper.hpp"
+#include "internal/startup_diagnostics.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -20,8 +21,13 @@ Backend::Backend(std::unique_ptr<IPicoRuntimeAdapter> runtime)
 Backend::~Backend() { Stop(); }
 
 Status Backend::Start(const BackendConfig& config) {
+    internal::TraceStartupEvent("backend.start.enter");
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!runtime_) return {StatusCode::RuntimeNotReady, 0, "runtime adapter is null"};
+    const auto finish = [](Status status) {
+        internal::TraceStartupEvent("backend.start.return", static_cast<int64_t>(status.code));
+        return status;
+    };
+    if (!runtime_) return finish({StatusCode::RuntimeNotReady, 0, "runtime adapter is null"});
 
     if (started_) runtime_->Stop();
     devices_.clear();
@@ -30,23 +36,28 @@ Status Backend::Start(const BackendConfig& config) {
         config.clockWindowSamples,
         config.clockDiscontinuityThresholdNs);
 
+    internal::TraceStartupEvent("backend.runtime_start.enter");
     Status status = runtime_->Start(config.runtime);
+    internal::TraceStartupEvent("backend.runtime_start.return", static_cast<int64_t>(status.code));
     if (!status.ok()) {
         clockMapper_.reset();
-        return status;
+        return finish(status);
     }
     started_ = true;
 
     std::vector<DeviceInfo> devices;
+    internal::TraceStartupEvent("backend.enumerate.enter");
     status = runtime_->EnumerateTrackers(devices);
+    internal::TraceStartupEvent("backend.enumerate.return", static_cast<int64_t>(status.code));
+    internal::TraceStartupEvent("backend.enumerate.count", static_cast<int64_t>(devices.size()));
     if (!status.ok()) {
         runtime_->Stop();
         started_ = false;
         clockMapper_.reset();
-        return status;
+        return finish(status);
     }
     MergeDevices(devices);
-    return Status::Ok();
+    return finish(Status::Ok());
 }
 
 void Backend::Stop() {
