@@ -95,8 +95,8 @@ continuation are diagnostic-only and never reject by an unvalidated threshold.
 Diagnostics use the existing bounded asynchronous queue (1024 entries, 128
 reserved for critical events); per-sample events may drop. Inspect gap/drop and
 writer-failure counters before accepting a future HIL capture. There is no new
-gate heap allocation, queue, lock, or unbounded history. JSON serialization
-allocates only on the explicitly enabled diagnostic path, reusing the existing
+gate heap allocation, queue, lock, or unbounded history. Additional diagnostic
+JSON serialization allocates only when diagnostics are enabled, reusing the existing
 writer infrastructure. No quantitative device performance claim is made.
 
 ## Deterministic offline tools

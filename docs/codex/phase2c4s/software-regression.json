@@ -1,0 +1,84 @@
+{
+  "repo": "orzkwsk/PicoMotionTrackerBridge",
+  "head": "6e562be1ce521b1e30aa99bd04281e73613e1475",
+  "mode": "Full",
+  "result": "PASS",
+  "failed_step": null,
+  "started_utc": "2026-10-15T05:53:05.7174662Z",
+  "ended_utc": "2026-10-15T05:53:22.8066960Z",
+  "hardware_validation": "NOT RUN",
+  "pico_hardware": "NOT RUN",
+  "release_packaging": "NOT RUN - run scripts/release_v2.py separately for source-bound v2 evidence",
+  "steps": [
+    {
+      "name": "release-tooling",
+      "result": "PASS",
+      "exit_code": 0,
+      "duration_ms": 307,
+      "log": "build\\phase2c4s-committed-full\\release-tooling.log"
+    },
+    {
+      "name": "release-tooling-optimized",
+      "result": "PASS",
+      "exit_code": 0,
+      "duration_ms": 318,
+      "log": "build\\phase2c4s-committed-full\\release-tooling-optimized.log"
+    },
+    {
+      "name": "protocol-v2-kit",
+      "result": "PASS",
+      "exit_code": 0,
+      "duration_ms": 200,
+      "log": "build\\phase2c4s-committed-full\\protocol-v2-kit.log"
+    },
+    {
+      "name": "protocol-v1-historical-kit",
+      "result": "PASS",
+      "exit_code": 0,
+      "duration_ms": 99,
+      "log": "build\\phase2c4s-committed-full\\protocol-v1-historical-kit.log"
+    },
+    {
+      "name": "cmake-configure",
+      "result": "PASS",
+      "exit_code": 0,
+      "duration_ms": 1143,
+      "log": "build\\phase2c4s-committed-full\\cmake-configure.log"
+    },
+    {
+      "name": "cmake-build",
+      "result": "PASS",
+      "exit_code": 0,
+      "duration_ms": 8522,
+      "log": "build\\phase2c4s-committed-full\\cmake-build.log"
+    },
+    {
+      "name": "ctest",
+      "result": "PASS",
+      "exit_code": 0,
+      "duration_ms": 4432,
+      "log": "build\\phase2c4s-committed-full\\ctest.log"
+    },
+    {
+      "name": "capi-configure",
+      "result": "PASS",
+      "exit_code": 0,
+      "duration_ms": 271,
+      "log": "build\\phase2c4s-committed-full\\capi-configure.log"
+    },
+    {
+      "name": "capi-build",
+      "result": "PASS",
+      "exit_code": 0,
+      "duration_ms": 1384,
+      "log": "build\\phase2c4s-committed-full\\capi-build.log"
+    },
+    {
+      "name": "capi-ctest",
+      "result": "PASS",
+      "exit_code": 0,
+      "duration_ms": 341,
+      "log": "build\\phase2c4s-committed-full\\capi-ctest.log"
+    }
+  ]
+}

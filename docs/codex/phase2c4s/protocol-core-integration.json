@@ -1,0 +1,37 @@
+{
+  "result": "PASS",
+  "software_only": true,
+  "fixture_mapping_only": true,
+  "live_bridge_tested": false,
+  "protocol_heads": {
+    "development\\MonakaVRInputProtocol": "6dfa595fa308fea64880fb5f501073feed9a726a",
+    "development\\MonakaBridgeInputProtocol": "3ea3194479cfa1a04b0fcbcf04916186efb4f9d3"
+  },
+  "protocol_binary_sha256": {
+    "mvip_capabilities_runner.exe": "f27cc483aebc8c49e8e163a4113620b9ea6cc1db4b936756f6dd30449cc850b2",
+    "mbip_capabilities_runner.exe": "1972dac0ab63808b186ec18be731b488f266a80e122584a099b3c4853223e224",
+    "mvip_boundary_encoder.exe": "5c0eec0f2f55bf3c43b19978d0e15ff4a749b6985323f7c13c8b8c976fdadbce"
+  },
+  "observation_projections": 101,
+  "observation_normalizations": 101,
+  "mtp_codec_encodes": 101,
+  "mtp_normalizations": 101,
+  "core_source_commit": "c73805da1a64d0b161775decd60e5632ea295a0f",
+  "core_jar_sha256": "ef37474a804ea0c3705fe556d21c97861fc4c1fd8feb1b622c42130c8f061863",
+  "core_replay_frames_per_run": 101,
+  "core_replay_runs": 2,
+  "core_deterministic": true,
+  "candidate_frames": 6,
+  "reacquire_admission_frame": 54,
+  "core_state_at_admission": "RECOVERY_DWELL",
+  "core_states": [
+    "FALLBACK_IK",
+    "RECOVERY_DWELL",
+    "RECOVERY_BLEND",
+    "FULL_6DOF"
+  ],
+  "core_state_commands_used": [],
+  "tuning_changed": false,
+  "hardware": "NOT RUN",
+  "core_full_suite": "NOT RUN"
+}

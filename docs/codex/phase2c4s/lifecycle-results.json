@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "java_command": "BackendTestApp/test_lifecycle.ps1 -Jdk 'C:/Program Files/Microsoft/jdk-17.0.20.101-hotspot'",
+  "java_tests": 10,
+  "U1": "PASS plain JVM desired ON restoration",
+  "U2": "PASS plain JVM explicit OFF persistence",
+  "U3": "SOURCE INSPECTION ONLY: MainActivity.backendState versus BridgeLifecycle.state; no Android lifecycle execution",
+  "U4": "PASS native publisher restart tests: 20 explicit starts regenerate session and reset sequence",
+  "U5": "PASS adapter/replay recreation clears candidate state; gate has no persistence path",
+  "admission_udp_lifecycle_coupling": "NONE; tested sender session/revision unchanged during admission cycles",
+  "issue6_modified": false,
+  "real_sleep_wake": "NOT RUN"
+}

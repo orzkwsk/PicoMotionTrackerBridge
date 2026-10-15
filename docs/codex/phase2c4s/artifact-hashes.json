@@ -1,0 +1,17 @@
+{
+  "implementation_commit": "6e562be1ce521b1e30aa99bd04281e73613e1475",
+  "artifacts": {
+    "build/revision-full/Release/pico_admission_replay.exe": "767a153c68749ca9424812b9998c47795d4d9374a214d4761ddec63f567649b4",
+    "build/revision-full/Release/pico_ot_bridge_service.exe": "9aad02f931d1d8a21957ad80fd609ab6a6e31b9ea1b8d7fd3e7f22d5fb1ad615"
+  },
+  "service_provenance": {
+    "component_name": "PicoMotionTrackerBridge",
+    "version": "0.1",
+    "git_commit": "6e562be1ce521b1e30aa99bd04281e73613e1475",
+    "git_branch_or_ref": "feature/pico-reacquire-admission-offline-v2c4s",
+    "dirty_at_build": false,
+    "build_timestamp_utc": "2026-10-15T05:53:11.563724Z",
+    "binary_sha256": "9aad02f931d1d8a21957ad80fd609ab6a6e31b9ea1b8d7fd3e7f22d5fb1ad615",
+    "build_system": "CMake/C++17"
+  }
+}

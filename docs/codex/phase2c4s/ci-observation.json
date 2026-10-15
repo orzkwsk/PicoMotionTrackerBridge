@@ -1,0 +1,8 @@
+{
+  "commit": "6e562be1ce521b1e30aa99bd04281e73613e1475",
+  "status": "NOT CONFIRMED",
+  "authenticated_combined_statuses": [],
+  "unauthenticated_actions_api": "404; not used as evidence of CI absence",
+  "workflow_run_lookup_limit": "Available connector filters PR-triggered runs; no PR was created",
+  "claim": "No CI PASS claimed; local software regression PASS is recorded separately"
+}
