@@ -1,0 +1,14 @@
+{
+  "classification": "REAL MASK-TIME CAPTURE / NOT NATURAL REACQUIRE EVIDENCE",
+  "source_run": "Phase 2C-3H / fixed-root-controlled-02",
+  "source_relative_path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/fixed-root-controlled-02/root-observations.jsonl",
+  "source_sha256": "aa0e1fd2385822d38f9029727f4b9987a02c562d14eb4c3df4f29e5f45d257bc",
+  "source_frames": 977,
+  "extracted_frames": 139,
+  "fixture": "mask_time_139.jsonl",
+  "fixture_sha256": "50705bc8ff567e921d9cb47510478615a922614f7db2b5e7653aae9f9d2d202a",
+  "original_core_pose_feedthrough_frames": 0,
+  "coordinate_semantics": "Existing Bridge canonical mapping; no new transform applied",
+  "native_tracking_state_available": false,
+  "natural_reacquire": false
+}

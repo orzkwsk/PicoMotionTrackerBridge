@@ -118,12 +118,22 @@ if(NOT ANDROID)
     # Task 1's verified kit is a PC-only dependency. Never add JSON to the HMD NDK ABI.
     add_subdirectory(third_party/monaka-protocol-v2/cpp EXCLUDE_FROM_ALL)
     add_library(pico_observation_provider STATIC
+        src/observation/reacquire_admission.cpp
         src/observation/observation_adapter.cpp
         src/observation/observation_publisher.cpp
         src/observation/observation_identity.cpp)
     target_compile_features(pico_observation_provider PUBLIC cxx_std_17)
-    target_include_directories(pico_observation_provider PUBLIC include)
+    target_include_directories(pico_observation_provider PUBLIC include third_party/monaka-protocol-v2/cpp/third_party)
     target_link_libraries(pico_observation_provider PUBLIC PicoOT::BridgeTransport MonakaProtocol::Codec)
+    add_executable(pico_admission_replay tools/pico_admission_replay.cpp)
+    target_link_libraries(pico_admission_replay PRIVATE pico_observation_provider)
+    if(PICO_OT_BUILD_TESTS)
+        add_executable(pico_admission_tests tests/admission_tests.cpp)
+        target_link_libraries(pico_admission_tests PRIVATE pico_observation_provider)
+        add_test(NAME pico_admission_tests COMMAND pico_admission_tests)
+        add_test(NAME pico_admission_replay_tests COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_admission_replay.py" "$<TARGET_FILE:pico_admission_replay>")
+    endif()
     if(MSVC)
         target_compile_options(pico_observation_provider PRIVATE /W4 /permissive- /utf-8)
     else()

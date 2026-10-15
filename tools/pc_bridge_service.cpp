@@ -5,6 +5,7 @@
 #include "pico_ot_backend/observation_identity.hpp"
 #include "pico_ot_backend/observation_publisher.hpp"
 #include "pico_ot_backend/runtime_diagnostic.hpp"
+#include "pico_ot_backend/admission_diagnostic.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -364,6 +365,7 @@ int main(int argc, char** argv) {
     uint16_t observationPort = 29810;
     std::filesystem::path identityPath;
     std::string diagnosticPath;
+    pico_ot::AdmissionConfig admissionConfig;
     try {
         for (int i=1;i<argc;++i) {
             const std::string option=argv[i];
@@ -374,7 +376,7 @@ int main(int argc, char** argv) {
                 return 0;
             }
             if (option=="--help") {
-                std::cout << "PICO PC service [--observation-port PORT] [--observation-config PATH] [--diagnostic-jsonl PATH] [--version [--json]]\n";
+                std::cout << "PICO PC service [--observation-port PORT] [--observation-config PATH] [--admission-config JSON_PATH] [--diagnostic-jsonl PATH] [--version [--json]]\n";
                 return 0;
             }
             if (i+1>=argc) throw std::invalid_argument("missing option value");
@@ -386,6 +388,11 @@ int main(int argc, char** argv) {
                 observationPort=static_cast<uint16_t>(port);
             } else if (option=="--observation-config") identityPath=std::filesystem::u8path(value);
             else if(option=="--diagnostic-jsonl") diagnosticPath=value;
+            else if(option=="--admission-config") {
+                std::ifstream file(std::filesystem::u8path(value));
+                if (!file) throw std::invalid_argument("cannot read admission config");
+                admissionConfig=pico_ot::ParseAdmissionConfig(nlohmann::json::parse(file));
+            }
             else throw std::invalid_argument("unknown option");
         }
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
@@ -474,6 +481,10 @@ int main(int argc, char** argv) {
         config.clockEpochPcNs=pico_ot::bridge::MonotonicNowNs();
         config.newUuid=pico_ot::NewObservationUuid;
         config.nextSpaceRevision=[&] { return observationIdentity->AdvanceRevision(); };
+        config.admission=admissionConfig;
+        if (diagnostic.Enabled()) config.admissionDiagnostic=[&](const auto& raw,const auto& result,const auto& observation) {
+            diagnostic.Event("pico_admission_sample",pico_ot::AdmissionDiagnosticJson(raw,result,observation),false);
+        };
         observationAdapter=std::make_unique<pico_ot::PicoObservationAdapter>(std::move(config));
         if (!observationPublisher.Start(observationPort,&error)) throw std::runtime_error(error);
         std::cout << "C1 Observation -> 127.0.0.1:" << observationPort
@@ -493,7 +504,20 @@ int main(int argc, char** argv) {
     int64_t nextRoutePollNs = 0;
     int64_t nextStatusPublishNs = 0;
     bool receiverErrorLogged = false;
-    diagnostic.Event("component_ready",{{"inventory_complete",false},{"inventory_boundary","accepted receiver packets only"}});
+    diagnostic.Event("component_ready",{{"inventory_complete",false},{"inventory_boundary","accepted receiver packets only"},
+        {"pico_admission",pico_ot::AdmissionConfigJson(admissionConfig)}});
+    // Observe every accepted packet, including loss/reacquire inside one Pump.
+    // Collect's sequence deduplication keeps the ordinary loop call harmless.
+    if (admissionConfig.enabled || diagnostic.Enabled()) receiver.SetDiagnosticObserver([&] {
+        diagnostic.Poll(receiver,pico_ot::bridge::MonotonicNowNs());
+        if (admissionConfig.enabled && observationAdapter) {
+            try { observationPublisher.Publish(*observationAdapter,receiver,pico_ot::bridge::MonotonicNowNs()); }
+            catch (const std::exception& e) {
+                diagnostic.Event("fatal_error",{{"operation","observation provider"},{"message",e.what()}});
+                observationAdapter.reset();
+            }
+        }
+    });
 
     while (gRun.load()) {
         const int64_t nowNs = pico_ot::bridge::MonotonicNowNs();

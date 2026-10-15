@@ -1,0 +1,466 @@
+[
+  {
+    "name": "stable_reacquire",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": false
+      },
+      {
+        "ms": 10,
+        "valid": true
+      },
+      {
+        "ms": 20,
+        "valid": true
+      },
+      {
+        "ms": 30,
+        "valid": true
+      },
+      {
+        "ms": 40,
+        "valid": false
+      }
+    ],
+    "states": [
+      "INVALID",
+      "CANDIDATE",
+      "CANDIDATE",
+      "ADMITTED",
+      "INVALID"
+    ]
+  },
+  {
+    "name": "one_frame_valid_flicker",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": false
+      },
+      {
+        "ms": 10,
+        "valid": true
+      },
+      {
+        "ms": 20,
+        "valid": false
+      }
+    ],
+    "states": [
+      "INVALID",
+      "CANDIDATE",
+      "INVALID"
+    ]
+  },
+  {
+    "name": "valid_invalid_chatter",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": true
+      },
+      {
+        "ms": 10,
+        "valid": false
+      },
+      {
+        "ms": 20,
+        "valid": true
+      },
+      {
+        "ms": 30,
+        "valid": false
+      },
+      {
+        "ms": 40,
+        "valid": true
+      }
+    ],
+    "states": [
+      "CANDIDATE",
+      "INVALID",
+      "CANDIDATE",
+      "INVALID",
+      "CANDIDATE"
+    ]
+  },
+  {
+    "name": "chatter_then_stable",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": true
+      },
+      {
+        "ms": 10,
+        "valid": false
+      },
+      {
+        "ms": 20,
+        "valid": true
+      },
+      {
+        "ms": 30,
+        "valid": true
+      },
+      {
+        "ms": 40,
+        "valid": true
+      }
+    ],
+    "states": [
+      "CANDIDATE",
+      "INVALID",
+      "CANDIDATE",
+      "CANDIDATE",
+      "ADMITTED"
+    ]
+  },
+  {
+    "name": "q_sign_flip",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": true
+      },
+      {
+        "ms": 10,
+        "valid": true,
+        "quaternion": [
+          0,
+          0,
+          0,
+          -1
+        ]
+      },
+      {
+        "ms": 20,
+        "valid": true
+      }
+    ],
+    "states": [
+      "CANDIDATE",
+      "CANDIDATE",
+      "ADMITTED"
+    ]
+  },
+  {
+    "name": "quaternion_jump_then_settle",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": true
+      },
+      {
+        "ms": 10,
+        "valid": true,
+        "quaternion": [
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "ms": 20,
+        "valid": true,
+        "quaternion": [
+          1,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "states": [
+      "CANDIDATE",
+      "CANDIDATE",
+      "ADMITTED"
+    ]
+  },
+  {
+    "name": "position_jump_then_settle",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": true
+      },
+      {
+        "ms": 10,
+        "valid": true,
+        "position": [
+          100,
+          2,
+          3
+        ]
+      },
+      {
+        "ms": 20,
+        "valid": true,
+        "position": [
+          100,
+          2,
+          3
+        ]
+      }
+    ],
+    "states": [
+      "CANDIDATE",
+      "CANDIDATE",
+      "ADMITTED"
+    ]
+  },
+  {
+    "name": "prediction_like_linear_continuation",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": true,
+        "position": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "ms": 10,
+        "valid": true,
+        "position": [
+          0.01,
+          0,
+          0
+        ]
+      },
+      {
+        "ms": 20,
+        "valid": true,
+        "position": [
+          0.02,
+          0,
+          0
+        ]
+      },
+      {
+        "ms": 30,
+        "valid": true,
+        "position": [
+          0.03,
+          0,
+          0
+        ]
+      }
+    ],
+    "states": [
+      "CANDIDATE",
+      "CANDIDATE",
+      "ADMITTED",
+      "ADMITTED"
+    ]
+  },
+  {
+    "name": "timestamp_gap",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": true
+      },
+      {
+        "ms": 10,
+        "valid": true
+      },
+      {
+        "ms": 600,
+        "valid": true
+      },
+      {
+        "ms": 610,
+        "valid": true
+      },
+      {
+        "ms": 620,
+        "valid": true
+      }
+    ],
+    "states": [
+      "CANDIDATE",
+      "CANDIDATE",
+      "CANDIDATE",
+      "CANDIDATE",
+      "ADMITTED"
+    ]
+  },
+  {
+    "name": "duplicate_timestamp",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": true
+      },
+      {
+        "ms": 0,
+        "valid": true
+      },
+      {
+        "ms": 10,
+        "valid": true
+      },
+      {
+        "ms": 20,
+        "valid": true
+      }
+    ],
+    "states": [
+      "CANDIDATE",
+      "CANDIDATE",
+      "CANDIDATE",
+      "ADMITTED"
+    ]
+  },
+  {
+    "name": "session_space_invariants",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": true,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": false
+      },
+      {
+        "ms": 10,
+        "valid": true
+      },
+      {
+        "ms": 20,
+        "valid": true
+      },
+      {
+        "ms": 30,
+        "valid": true
+      },
+      {
+        "ms": 40,
+        "valid": false
+      },
+      {
+        "ms": 50,
+        "valid": true
+      },
+      {
+        "ms": 60,
+        "valid": true
+      },
+      {
+        "ms": 70,
+        "valid": true
+      }
+    ],
+    "states": [
+      "INVALID",
+      "CANDIDATE",
+      "CANDIDATE",
+      "ADMITTED",
+      "INVALID",
+      "CANDIDATE",
+      "CANDIDATE",
+      "ADMITTED"
+    ]
+  },
+  {
+    "name": "disabled_compatibility",
+    "classification": "SYNTHETIC / TEST-ONLY",
+    "config": {
+      "enabled": false,
+      "reacquire_confirm_ms": 20,
+      "reacquire_min_samples": 3
+    },
+    "samples": [
+      {
+        "ms": 0,
+        "valid": false
+      },
+      {
+        "ms": 10,
+        "valid": true
+      },
+      {
+        "ms": 20,
+        "valid": false
+      },
+      {
+        "ms": 30,
+        "valid": true
+      }
+    ],
+    "states": [
+      "INVALID",
+      "ADMITTED",
+      "INVALID",
+      "ADMITTED"
+    ]
+  }
+]
