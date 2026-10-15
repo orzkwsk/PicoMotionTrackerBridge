@@ -1,0 +1,146 @@
+[
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/baseline-stationary-01/root-observations.jsonl",
+    "sha256": "eff10ee7cc32455b0cf62d3c32d5c96f88ccbe050bbbc7631c8817655fd1d5d5",
+    "frames": 1695,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/baseline-stationary-02/root-observations.jsonl",
+    "sha256": "be19a3ee484955e459ea969bce1cb179bfe094fcaf9c10559514eb594aaebf00",
+    "frames": 4503,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/baseline-stationary-03/root-observations.jsonl",
+    "sha256": "9391e98ae1991920c3504e72626aff9af7d7c819455182922b19e82bfb32541f",
+    "frames": 10119,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/baseline-stationary-04/root-observations.jsonl",
+    "sha256": "a2edf8429949dbe58bb346f4f93d40c440a1486cc180424f4347a2d7fc51c561",
+    "frames": 1350,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/baseline-stationary-05/root-observations.jsonl",
+    "sha256": "92dd012510af7ba7d5ebb361eb4c7235a090b352ffbbfcb0f619e0ac75df7a52",
+    "frames": 1408,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/baseline-stationary-06/root-observations.jsonl",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "frames": 0,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/baseline-stationary-07/root-observations.jsonl",
+    "sha256": "44b4491a5b69404faf399c3ad138d3446fec831f3314dcd81407f97b2d6646dd",
+    "frames": 4198,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/baseline-stationary-08/root-observations.jsonl",
+    "sha256": "cb2ed0b7a3cdd93784f312f2fad2d15621314f12e1268b84ec96e556e66e1a73",
+    "frames": 4538,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/baseline-stationary-09/root-observations.jsonl",
+    "sha256": "5f030f03bb04a1dad72144916fb8fe7ea760e95da2fea935f76b4cb6dc34a057",
+    "frames": 1092,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/fixed-root-controlled-01/root-observations.jsonl",
+    "sha256": "ccb1f1b7f47121159c128700b042975d18a873399c2b39b3a9dd63fe6a631108",
+    "frames": 1238,
+    "masked_frames": 0,
+    "usable_raw_mask_frames": 0,
+    "mask_observability_frames": 1238,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/fixed-root-controlled-02/root-observations.jsonl",
+    "sha256": "aa0e1fd2385822d38f9029727f4b9987a02c562d14eb4c3df4f29e5f45d257bc",
+    "frames": 977,
+    "masked_frames": 139,
+    "usable_raw_mask_frames": 139,
+    "mask_observability_frames": 977,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/fixed-root-stationary-01/root-observations.jsonl",
+    "sha256": "54f7dc5003a9f8e02dee99bf1f91be68035f7e2c14d56fc439710a3467b863aa",
+    "frames": 11467,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/fixed-root-stationary-02/root-observations.jsonl",
+    "sha256": "4ecef08f727afce3d5ca299eca0133e8001a77461be0afcc6993d210cac07255",
+    "frames": 26350,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/fixed-root-stationary-03/root-observations.jsonl",
+    "sha256": "6ef5ab241db05ce288bb6defca7f28a8a590a664dcc5501075c41e101ff833ba",
+    "frames": 64,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/fixed-root-stationary-04/root-observations.jsonl",
+    "sha256": "cb3bb9089a9d123ebd1fc3d5eae6d1d212152c50393e531c8edff20b88729c4d",
+    "frames": 1671,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  },
+  {
+    "path": "hil/phase2c3h-root-fallback-20261015-005804-f52dc350/fixed-root-stationary-05/root-observations.jsonl",
+    "sha256": "c76f50efa7c82220d18446018701ef5de349b5ed9e42400b072ee74cdc0ef4da",
+    "frames": 1600,
+    "masked_frames": null,
+    "usable_raw_mask_frames": null,
+    "mask_observability_frames": 0,
+    "natural_reacquire_evidence": false
+  }
+]

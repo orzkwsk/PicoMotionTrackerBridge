@@ -1,0 +1,144 @@
+{
+  "result": "PASS",
+  "verification": "scripts/test_admission_replay.py; unittest scenarios and assertions; CTest replay target",
+  "scenarios": [
+    {
+      "name": "stable_reacquire",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "INVALID",
+        "CANDIDATE",
+        "CANDIDATE",
+        "ADMITTED",
+        "INVALID"
+      ]
+    },
+    {
+      "name": "one_frame_valid_flicker",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "INVALID",
+        "CANDIDATE",
+        "INVALID"
+      ]
+    },
+    {
+      "name": "valid_invalid_chatter",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "CANDIDATE",
+        "INVALID",
+        "CANDIDATE",
+        "INVALID",
+        "CANDIDATE"
+      ]
+    },
+    {
+      "name": "chatter_then_stable",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "CANDIDATE",
+        "INVALID",
+        "CANDIDATE",
+        "CANDIDATE",
+        "ADMITTED"
+      ]
+    },
+    {
+      "name": "q_sign_flip",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "CANDIDATE",
+        "CANDIDATE",
+        "ADMITTED"
+      ]
+    },
+    {
+      "name": "quaternion_jump_then_settle",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "CANDIDATE",
+        "CANDIDATE",
+        "ADMITTED"
+      ]
+    },
+    {
+      "name": "position_jump_then_settle",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "CANDIDATE",
+        "CANDIDATE",
+        "ADMITTED"
+      ]
+    },
+    {
+      "name": "prediction_like_linear_continuation",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "CANDIDATE",
+        "CANDIDATE",
+        "ADMITTED",
+        "ADMITTED"
+      ]
+    },
+    {
+      "name": "timestamp_gap",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "CANDIDATE",
+        "CANDIDATE",
+        "CANDIDATE",
+        "CANDIDATE",
+        "ADMITTED"
+      ]
+    },
+    {
+      "name": "duplicate_timestamp",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "CANDIDATE",
+        "CANDIDATE",
+        "CANDIDATE",
+        "ADMITTED"
+      ]
+    },
+    {
+      "name": "session_space_invariants",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "INVALID",
+        "CANDIDATE",
+        "CANDIDATE",
+        "ADMITTED",
+        "INVALID",
+        "CANDIDATE",
+        "CANDIDATE",
+        "ADMITTED"
+      ]
+    },
+    {
+      "name": "disabled_compatibility",
+      "classification": "SYNTHETIC / TEST-ONLY",
+      "result": "PASS",
+      "expected_states": [
+        "INVALID",
+        "ADMITTED",
+        "INVALID",
+        "ADMITTED"
+      ]
+    }
+  ],
+  "historical_mask_frames": 139,
+  "natural_reacquire_validated": false
+}

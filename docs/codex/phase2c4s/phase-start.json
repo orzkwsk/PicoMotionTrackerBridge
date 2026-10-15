@@ -1,0 +1,16 @@
+{
+  "repo": "orzkwsk/PicoMotionTrackerBridge",
+  "local_dev": "e7d858007768b638b7b49fca18da647740ac508e",
+  "remote_dev": "e7d858007768b638b7b49fca18da647740ac508e",
+  "remote_verified_by": "git fetch origin dev; git ls-remote origin refs/heads/dev",
+  "phase_start_sha": "e7d858007768b638b7b49fca18da647740ac508e",
+  "original_checkout_branch": "fix/hmd-initial-tracker-discovery",
+  "original_checkout_sha": "66f0262a5399f15a1f3673fd204dc36553546647",
+  "original_checkout_clean": true,
+  "phase_worktree": "task-work/phase2c4s",
+  "work_branch": "feature/pico-reacquire-admission-offline-v2c4s",
+  "phase_worktree_initially_clean": true,
+  "implementation_commit": "6e562be1ce521b1e30aa99bd04281e73613e1475",
+  "original_checkout_and_frozen_audit_unchanged": true,
+  "instructions_source": "Complete unabridged delegation message; Library materialization failed on Windows os.setxattr after the one authorized retry; no bypass or local file claimed"
+}
