@@ -11,6 +11,7 @@ add_subdirectory("${PICO_OT_REPO_ROOT}" "${CMAKE_BINARY_DIR}/pico_ot_backend")
 
 add_library(pico_ot_backend_test SHARED backend_test_jni.cpp)
 target_compile_features(pico_ot_backend_test PRIVATE cxx_std_17)
+target_include_directories(pico_ot_backend_test PRIVATE "${PICO_OT_REPO_ROOT}/src")
 target_link_libraries(pico_ot_backend_test PRIVATE
     PicoOT::Backend
     PicoOT::BridgePublisher

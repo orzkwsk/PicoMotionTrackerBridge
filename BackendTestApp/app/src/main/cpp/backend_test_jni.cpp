@@ -2,6 +2,7 @@
 #include <android/log.h>
 
 #include "pico_ot_backend/pico_ot_backend.h"
+#include "internal/startup_diagnostics.hpp"
 #include "pico_ot_bridge/publisher.hpp"
 
 #include <atomic>
@@ -390,7 +391,7 @@ StartResult StartBackend() {
     gPollThread = std::thread([pollingBackend] { PollLoop(pollingBackend); });
 
     std::ostringstream out;
-    out << "Backend started\nTrackers: " << count
+    out << "Backend started"
         << "\nBuild ID: " << diag.library_build_id_hex
         << "\nVerified: " << static_cast<unsigned>(diag.runtime_identity_verified)
         << "\nPoll: " << kPollHz << " Hz"
@@ -456,10 +457,24 @@ jobject ToStartResult(JNIEnv* env, const StartResult& result) {
 
 extern "C" JNIEXPORT jobject JNICALL
 Java_com_orz_picootbackendtest_MainActivity_nativeStart(JNIEnv* env, jclass) {
+    pico_ot::internal::TraceStartupEvent("jni.native_start.enter");
     LogInfo("JNI nativeStart: enter");
     const StartResult result = StartBackend();
+    pico_ot::internal::TraceStartupEvent("jni.native_start.return", result.success ? 1 : 0);
     LogInfo("JNI nativeStart: return");
     return ToStartResult(env, result);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeConfigureStartupDiagnostics(
+    JNIEnv*, jclass, jboolean enabled) {
+    pico_ot::internal::EnableStartupDiagnostics(enabled == JNI_TRUE);
+    pico_ot::internal::TraceStartupEvent("app.on_create");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeMarkManualBackendStart(JNIEnv*, jclass) {
+    pico_ot::internal::TraceStartupEvent("app.manual_backend_start");
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -482,6 +497,13 @@ Java_com_orz_picootbackendtest_MainActivity_nativeReinitialize(JNIEnv* env, jcla
     }
     __android_log_print(ANDROID_LOG_INFO, kTag, "REINITIALIZE status=ok trackerMap=rebuilt clockMapper=reset");
     return ToJString(env, "Tracker map reinitialized; clock mapping reset");
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeTrackerCount(JNIEnv*, jclass) {
+    std::lock_guard<std::mutex> lock(gLifecycleMutex);
+    // Read the existing registry only; this must not trigger vendor enumeration.
+    return gBackend ? static_cast<jint>(pico_ot_device_count(gBackend)) : 0;
 }
 
 extern "C" JNIEXPORT jobject JNICALL

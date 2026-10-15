@@ -39,9 +39,13 @@ public final class MainActivity extends Activity {
     private BridgeLifecycle bridge;
     private BridgeLifecycle.State backendState = BridgeLifecycle.State.STOPPED;
     private String backendMessage = "Backend stopped";
+    private int trackerCount = 0;
 
     private static native StartResult nativeStart();
+    private static native void nativeConfigureStartupDiagnostics(boolean enabled);
+    private static native void nativeMarkManualBackendStart();
     private static native void nativeStop();
+    private static native int nativeTrackerCount();
     private static native String nativeReinitialize();
     private static native StartResult nativeStartBridge(String pcIpv4, int port);
     private static native boolean nativeIsNumericIpv4(String pcIpv4);
@@ -52,12 +56,13 @@ public final class MainActivity extends Activity {
         final StartResult result = nativeStart();
         backendState = result.success ? BridgeLifecycle.State.RUNNING : BridgeLifecycle.State.ERROR;
         backendMessage = result.message;
+        trackerCount = nativeTrackerCount();
         Log.i(TAG, "JAVA startBackend: success=" + result.success + " " + result.message.replace('\n', ' '));
         renderStatus();
     }
 
     private void renderStatus() {
-        statusView.setText("Backend: " + backendState + "\n" + backendMessage
+        statusView.setText("Backend: " + backendState + "\nTrackers: " + trackerCount + "\n" + backendMessage
             + "\n\nUDP: " + bridge.state() + "\nUDP endpoint: " + bridge.endpoint()
             + "\n" + bridge.message());
     }
@@ -76,6 +81,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "JAVA onCreate: begin");
         super.onCreate(savedInstanceState);
+        nativeConfigureStartupDiagnostics(getIntent().getBooleanExtra("startup_trace", false));
 
         final SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         bridge = new BridgeLifecycle(new BridgeLifecycle.Settings() {
@@ -108,7 +114,10 @@ public final class MainActivity extends Activity {
 
         Button start = new Button(this);
         start.setText("Start / Restart Backend");
-        start.setOnClickListener(v -> startBackend());
+        start.setOnClickListener(v -> {
+            nativeMarkManualBackendStart();
+            startBackend();
+        });
         root.addView(start);
 
         Button reinit = new Button(this);
@@ -118,6 +127,7 @@ public final class MainActivity extends Activity {
             final String result = nativeReinitialize();
             Log.i(TAG, "JAVA reinitialize: returned: " + result);
             backendMessage = result;
+            trackerCount = nativeTrackerCount();
             renderStatus();
         });
         root.addView(reinit);
@@ -167,6 +177,7 @@ public final class MainActivity extends Activity {
             Log.i(TAG, "JAVA stop: complete");
             backendState = BridgeLifecycle.State.STOPPED;
             backendMessage = "Backend stopped";
+            trackerCount = 0;
             renderStatus();
         });
         root.addView(stop);

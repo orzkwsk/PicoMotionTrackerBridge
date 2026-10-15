@@ -49,6 +49,12 @@ public final class BridgeSmokeInstrumentation extends Instrumentation {
             check(status().contains("UDP endpoint: " + pcIpv4 + ":29765"), "endpoint displayed");
             report("B manual START and saved intent");
 
+            final String countBeforeReinitialize = trackerCountLine();
+            click("Reinitialize Tracker Map");
+            expectState("RUNNING");
+            check(trackerCountLine().equals(countBeforeReinitialize), "Reinitialize retains registry count display");
+            report("tracker count remains visible after Reinitialize");
+
             recreate();
             expectState("RUNNING");
             check(input().equals(pcIpv4), "saved input restored");
@@ -87,6 +93,7 @@ public final class BridgeSmokeInstrumentation extends Instrumentation {
 
             click("Stop Backend");
             check(status().contains("Backend: STOPPED") && status().contains("UDP: RUNNING"), "independent STOP states");
+            check(trackerCountLine().equals("Trackers: 0"), "stopped backend has no registered trackers");
             click("Start / Restart Backend");
             expectState("RUNNING");
             report("independent backend/publisher states");
@@ -165,6 +172,20 @@ public final class BridgeSmokeInstrumentation extends Instrumentation {
     private void expectState(String udp) {
         String text = status();
         check(text.contains("Backend: RUNNING") && text.contains("UDP: " + udp), text);
+        trackerCountLine();
+    }
+
+    private String trackerCountLine() {
+        String count = null;
+        for (String line : status().split("\n")) {
+            if (line.startsWith("Trackers: ")) {
+                check(count == null, "single tracker count line");
+                check(line.matches("Trackers: [0-9]+"), "numeric registry count");
+                count = line;
+            }
+        }
+        check(count != null, "tracker count is always visible");
+        return count;
     }
 
     private String savedIp() { return preferences.getString("bridge_pc_ipv4", ""); }
