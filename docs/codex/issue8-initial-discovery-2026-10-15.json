@@ -1,0 +1,431 @@
+{
+  "date": "2026-10-15",
+  "branch": "fix/hmd-initial-tracker-discovery",
+  "parent_revision": "e7d858007768b638b7b49fca18da647740ac508e",
+  "udp_lifecycle_tested_revision": "e7d858007768b638b7b49fca18da647740ac508e",
+  "dev_integration_revision": "e7d858007768b638b7b49fca18da647740ac508e",
+  "status": "PARTIAL",
+  "issue_8_state": "OPEN",
+  "issue_6_changed": false,
+  "issue_7_changed": false,
+  "root_cause": {
+    "initial_discovery_with_tracker_ready_before_start": "NOT IDENTIFIED; no controlled failure with confirmed readiness before launch",
+    "confirmed_late_power_on_behavior": "Backend registry is enumerated once at startup. Reinitialize resets the vendor map and clock mapper but does not update the registry. A tracker absent at startup remains absent until full Backend restart.",
+    "historical_failure_order": "UNKNOWN, as reported by user",
+    "settling_race": "NOT PROVEN; successful launches enumerated approximately 0.014-0.022 ms after initTrackerMap returned; no production delay or retry added",
+    "disappearing_count_ui": "CONFIRMED and FIXED: Reinitialize result replaced a message containing the only tracker-count line. The count now has a separate persistent line read from the existing registry."
+  },
+  "fix": {
+    "files": [
+      "BackendTestApp/app/src/main/java/com/orz/picootbackendtest/MainActivity.java",
+      "BackendTestApp/app/src/main/cpp/backend_test_jni.cpp",
+      "BackendTestApp/app/src/androidTest/java/com/orz/picootbackendtest/BridgeSmokeInstrumentation.java",
+      "src/internal/startup_diagnostics.hpp",
+      "src/internal/startup_diagnostics.cpp",
+      "src/backend.cpp",
+      "src/runtime/current_firmware_adapter.cpp",
+      "tests/backend_lifecycle_tests.cpp",
+      "CMakeLists.txt",
+      "BackendTestApp/app/src/main/cpp/CMakeLists.txt",
+      "BackendTestApp/app/build.gradle",
+      "BackendTestApp/README.md"
+    ],
+    "behavior": [
+      "Persistent tracker-count display after Reinitialize and Stop; no parsing of native message to determine count.",
+      "Opt-in startup_trace monotonic events; disabled by default; no added pose-loop logging.",
+      "Host fake-runtime tests pin start/enumeration order, failure handling and no re-enumeration during polling/Reinitialize."
+    ],
+    "safety": "No discovery sequence, private ABI guards, allocator ownership, tracking validity or protocol change."
+  },
+  "allocator_enumeration_safety": {
+    "repeated_enumeration_within_runtime_instance_used": false,
+    "vendor_vector_leak_behavior_changed": false,
+    "one_enumeration_per_runtime_start": true,
+    "allow_repeated_leaky_enumeration": false
+  },
+  "tests": {
+    "host": "12/12 PASS (Release; run outside restricted network sandbox)",
+    "jvm": "10/10 PASS",
+    "apk_build": "PASS; main and Android smoke APKs",
+    "udp_lifecycle_regression": "PASS on device; fresh settings, START, persistence, recreation, explicit STOP, invalid input, endpoint changes, repeated START, independent Backend STOP/START",
+    "persistent_count_regression": "PASS on device; count line remains after Reinitialize; Stop shows zero",
+    "version_code": 7,
+    "version_name": "0.1.0-dev.7",
+    "apk_sha256": "03e5fa7c24f857d0c5917e659c6b8fe010ddaae729564756cc92deda1d287a9c"
+  },
+  "hil_groups": [
+    {
+      "evidence_directory": "build/issue8/baseline-ready",
+      "readiness": "User confirmed ON and officially connected before the v6 five-start sequence; startup trace enabled.",
+      "trials": [
+        {
+          "trial": 1,
+          "init_tracker_map_return_ns": 33792888248878,
+          "first_enumeration_ns": 33792888262993,
+          "init_to_enumeration_ms": 0.014115,
+          "activity_to_enumeration_ms": 55.054896,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 2,
+          "init_tracker_map_return_ns": 33795565581429,
+          "first_enumeration_ns": 33795565598460,
+          "init_to_enumeration_ms": 0.017031,
+          "activity_to_enumeration_ms": 62.380833,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 3,
+          "init_tracker_map_return_ns": 33798234642001,
+          "first_enumeration_ns": 33798234657522,
+          "init_to_enumeration_ms": 0.015521,
+          "activity_to_enumeration_ms": 57.979479,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 4,
+          "init_tracker_map_return_ns": 33800871003458,
+          "first_enumeration_ns": 33800871018927,
+          "init_to_enumeration_ms": 0.015469,
+          "activity_to_enumeration_ms": 61.460104,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 5,
+          "init_tracker_map_return_ns": 33803536054759,
+          "first_enumeration_ns": 33803536071582,
+          "init_to_enumeration_ms": 0.016823,
+          "activity_to_enumeration_ms": 58.645729,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        }
+      ]
+    },
+    {
+      "evidence_directory": "build/issue8/baseline-ready-no-trace",
+      "readiness": "Same ready tracker, five more v6 starts; extra startup trace disabled. Null timings mean not observed.",
+      "trials": [
+        {
+          "trial": 1,
+          "init_tracker_map_return_ns": null,
+          "first_enumeration_ns": null,
+          "init_to_enumeration_ms": null,
+          "activity_to_enumeration_ms": null,
+          "accepted_count": 1,
+          "enumeration_calls": null,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 2,
+          "init_tracker_map_return_ns": null,
+          "first_enumeration_ns": null,
+          "init_to_enumeration_ms": null,
+          "activity_to_enumeration_ms": null,
+          "accepted_count": 1,
+          "enumeration_calls": null,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 3,
+          "init_tracker_map_return_ns": null,
+          "first_enumeration_ns": null,
+          "init_to_enumeration_ms": null,
+          "activity_to_enumeration_ms": null,
+          "accepted_count": 1,
+          "enumeration_calls": null,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 4,
+          "init_tracker_map_return_ns": null,
+          "first_enumeration_ns": null,
+          "init_to_enumeration_ms": null,
+          "activity_to_enumeration_ms": null,
+          "accepted_count": 1,
+          "enumeration_calls": null,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 5,
+          "init_tracker_map_return_ns": null,
+          "first_enumeration_ns": null,
+          "init_to_enumeration_ms": null,
+          "activity_to_enumeration_ms": null,
+          "accepted_count": 1,
+          "enumeration_calls": null,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        }
+      ]
+    },
+    {
+      "evidence_directory": "build/issue8/tracker-off-app-start",
+      "readiness": "User explicitly confirmed OFF and official app disconnected before launch; expected legitimate zero devices.",
+      "trials": [
+        {
+          "trial": 1,
+          "init_tracker_map_return_ns": 34052338278362,
+          "first_enumeration_ns": 34052338292842,
+          "init_to_enumeration_ms": 0.01448,
+          "activity_to_enumeration_ms": 57.396407,
+          "accepted_count": 0,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": false
+        }
+      ]
+    },
+    {
+      "evidence_directory": "build/issue8/v7-ready",
+      "readiness": "Readiness had been confirmed earlier, but not immediately reconfirmed at these launches. All five were zero. DO NOT label as confirmed-ready failures.",
+      "trials": [
+        {
+          "trial": 1,
+          "init_tracker_map_return_ns": 34516741602612,
+          "first_enumeration_ns": 34516741618237,
+          "init_to_enumeration_ms": 0.015625,
+          "activity_to_enumeration_ms": 74.090625,
+          "accepted_count": 0,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": false
+        },
+        {
+          "trial": 2,
+          "init_tracker_map_return_ns": 34522356641360,
+          "first_enumeration_ns": 34522356659277,
+          "init_to_enumeration_ms": 0.017917,
+          "activity_to_enumeration_ms": 62.053438,
+          "accepted_count": 0,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": false
+        },
+        {
+          "trial": 3,
+          "init_tracker_map_return_ns": 34527093389535,
+          "first_enumeration_ns": 34527093409692,
+          "init_to_enumeration_ms": 0.020157,
+          "activity_to_enumeration_ms": 311.246459,
+          "accepted_count": 0,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": false
+        },
+        {
+          "trial": 4,
+          "init_tracker_map_return_ns": 34532263729325,
+          "first_enumeration_ns": 34532263740940,
+          "init_to_enumeration_ms": 0.011615,
+          "activity_to_enumeration_ms": 55.981146,
+          "accepted_count": 0,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": false
+        },
+        {
+          "trial": 5,
+          "init_tracker_map_return_ns": 34537660331354,
+          "first_enumeration_ns": 34537660345156,
+          "init_to_enumeration_ms": 0.013802,
+          "activity_to_enumeration_ms": 54.32651,
+          "accepted_count": 0,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": false
+        }
+      ]
+    },
+    {
+      "evidence_directory": "build/issue8/v7-reconfirmed-ready",
+      "readiness": "User reconfirmed official connection and manually restarted Backend to one immediately before this fresh launch.",
+      "trials": [
+        {
+          "trial": 1,
+          "init_tracker_map_return_ns": 34671410186355,
+          "first_enumeration_ns": 34671410204220,
+          "init_to_enumeration_ms": 0.017865,
+          "activity_to_enumeration_ms": 58.723958,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        }
+      ]
+    },
+    {
+      "evidence_directory": "build/issue8/v7-power-on-immediate",
+      "readiness": "Launched upon human ON reply without waiting for connection; exact power-on-to-launch latency not measured. One device found.",
+      "trials": [
+        {
+          "trial": 1,
+          "init_tracker_map_return_ns": 34759406764134,
+          "first_enumeration_ns": 34759406780488,
+          "init_to_enumeration_ms": 0.016354,
+          "activity_to_enumeration_ms": 56.604062,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        }
+      ]
+    },
+    {
+      "evidence_directory": "build/issue8/v7-final-ready",
+      "readiness": "Following successful post-power-on detection; five consecutive launches, no requested power change, manual Backend START not used.",
+      "trials": [
+        {
+          "trial": 1,
+          "init_tracker_map_return_ns": 34777816764648,
+          "first_enumeration_ns": 34777816778867,
+          "init_to_enumeration_ms": 0.014219,
+          "activity_to_enumeration_ms": 54.544688,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 2,
+          "init_tracker_map_return_ns": 34780439906835,
+          "first_enumeration_ns": 34780439928658,
+          "init_to_enumeration_ms": 0.021823,
+          "activity_to_enumeration_ms": 55.388907,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 3,
+          "init_tracker_map_return_ns": 34783041990948,
+          "first_enumeration_ns": 34783042006990,
+          "init_to_enumeration_ms": 0.016042,
+          "activity_to_enumeration_ms": 54.036042,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 4,
+          "init_tracker_map_return_ns": 34785657418812,
+          "first_enumeration_ns": 34785657435166,
+          "init_to_enumeration_ms": 0.016354,
+          "activity_to_enumeration_ms": 54.572292,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        },
+        {
+          "trial": 5,
+          "init_tracker_map_return_ns": 34788305442040,
+          "first_enumeration_ns": 34788305456988,
+          "init_to_enumeration_ms": 0.014948,
+          "activity_to_enumeration_ms": 54.480156,
+          "accepted_count": 1,
+          "enumeration_calls": 1,
+          "manual_backend_start_events": 0,
+          "backend_started": true,
+          "udp_auto_running": true,
+          "pc_accepted_new_session": true
+        }
+      ]
+    }
+  ],
+  "late_connect_comparison": {
+    "initial_count": 0,
+    "readiness_at_start": "User-confirmed OFF and official app disconnected",
+    "later_readiness": "User-confirmed ON and official app connected",
+    "reinitialize_success": true,
+    "count_after_reinitialize": "UNKNOWN because v6 UI count line disappeared; do not infer zero from invisible text",
+    "manual_backend_restart_count": 1,
+    "manual_start_event_captured": true
+  },
+  "v7_user_followup": {
+    "observation": "After official connection confirmation, displayed count remained zero until user pressed Backend START, then one. Fresh app start after that found one.",
+    "startup_manual_event_capture": "Live buffer had already rotated by post-action dump; rely on user observation for this comparison.",
+    "evidence": "build/issue8/v7-after-zero-manual/summary.json"
+  },
+  "pc_pose_reception": {
+    "final_five_start_capture": {
+      "pose": 750,
+      "device_state": 5
+    },
+    "each_new_hmd_session_accepted_by_pc": true,
+    "source": "Existing PC receiver Utility mirror; original HMD sessions matched through read-only service status mapping. Utility re-encodes session IDs.",
+    "optical_validity_claimed": false,
+    "evidence": "build/issue8/v7-final-ready"
+  },
+  "not_run": [
+    "100/250/500/1000 ms delayed single-enumeration comparison: no confirmed-ready failing launch to compare, so timing workarounds were not added.",
+    "True HMD power-off/reboot cold boot. Trials are fresh app processes, not OS reboots.",
+    "Sub-second power-on timing: the immediate test includes human reply latency.",
+    "Issue #6 long-idle and Issue #7 tracking-loss acceptance; unchanged and out of scope."
+  ],
+  "acceptance": "Persistent count display PASS. Controlled ready-start discovery and UDP regression PASS. Issue #8 overall PARTIAL because the reported initial-discovery race has no established root cause or verified discovery fix; keep OPEN.",
+  "implementation_revision": "8ee018174fbb55f0c1066572c0f234cfa3888142"
+}

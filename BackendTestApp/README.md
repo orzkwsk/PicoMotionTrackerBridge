@@ -96,6 +96,39 @@ log with the sender session received at the PC. No PC packet is expected without
 tracker/device samples; backend RUNNING and publisher RUNNING alone do not prove
 packet delivery.
 
+## Initial discovery diagnostics (Issue #8)
+
+The diagnostic build adds opt-in monotonic startup events under logcat tag
+`PicoOTStartup`. They cover Activity/JNI entry, Backend start, runtime loading,
+singleton acquisition, tracker-map initialization, and the first enumeration's
+vendor result, vector span/count, and accepted device count. No serials or raw
+pointers are added to these events. The trace is disabled by default and adds
+no pose-loop logging, delay, retry, or extra vendor enumeration.
+
+```powershell
+& $taskAdb -s <device> shell am force-stop com.orz.picootbackendtest
+& $taskAdb -s <device> shell am start -W -n com.orz.picootbackendtest/.MainActivity --ez startup_trace true
+& $taskAdb -s <device> logcat -v threadtime -s PicoOTStartup:I PicoOTTest:I '*:S'
+```
+
+Compare `runtime.init_tracker_map.return` and `runtime.enumerate.enter` in the
+same process using `mono_ns`; `app.manual_backend_start` identifies an actual
+Backend button restart. Keep tracker readiness before app launch separate from
+powering on a tracker after the startup-only registry was built. Reinitialize
+resets the tracker map/clock mapping but does not add serials to that registry.
+The separate `Trackers:` status line always shows the registered device count,
+including after Reinitialize and Backend STOP. Reading this count uses the existing
+registry and does not enumerate the vendor runtime again. It is not a live count
+of currently connected trackers.
+
+The [2026-10-15 investigation report](../docs/codex/issue8-initial-discovery-2026-10-15.json)
+records the readiness conditions and monotonic timings. The final five fresh-process
+starts each found one tracker without a manual Backend restart, and the PC mirror
+received 750 Pose packets. The historical failure's connection/start order is
+unknown, and a confirmed-ready initialization race was not established. Issue #8
+remains OPEN/PARTIAL; this revision fixes count visibility and adds diagnostics,
+without a discovery delay, automatic restart, or repeated vendor enumeration.
+
 ## Build, install, start and log
 
 Connect the PICO by ADB/USB and run:
