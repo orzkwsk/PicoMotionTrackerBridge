@@ -33,6 +33,11 @@ std::mutex gPublisherMutex;
 pico_ot::bridge::Publisher gPublisher;
 bool gPublisherErrorLogged = false;
 
+struct StartResult {
+    bool success;
+    std::string message;
+};
+
 struct CadenceStats {
     uint64_t polls = 0;
     uint64_t uniqueSamples = 0;
@@ -309,7 +314,7 @@ void PollLoop(pico_ot_backend_t* backend) {
     LogInfo("NATIVE PollLoop: exiting");
 }
 
-std::string StartBackend() {
+StartResult StartBackend() {
     LogInfo("NATIVE StartBackend: enter");
     std::lock_guard<std::mutex> lock(gLifecycleMutex);
     LogInfo("NATIVE StartBackend: lifecycle lock acquired");
@@ -319,7 +324,7 @@ std::string StartBackend() {
     gBackend = pico_ot_create();
     if (gBackend == nullptr) {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "NATIVE StartBackend: pico_ot_create failed");
-        return "pico_ot_create failed";
+        return {false, "pico_ot_create failed"};
     }
     LogInfo("NATIVE StartBackend: pico_ot_create ok");
 
@@ -345,7 +350,7 @@ std::string StartBackend() {
         const std::string error = pico_ot_last_error(gBackend);
         pico_ot_destroy(gBackend);
         gBackend = nullptr;
-        return "Start failed: " + error;
+        return {false, "Start failed: " + error};
     }
 
     pico_ot_runtime_diagnostics_t diag{};
@@ -391,10 +396,10 @@ std::string StartBackend() {
         << "\nPoll: " << kPollHz << " Hz"
         << "\nLogcat: PicoOTTest";
     LogInfo("NATIVE StartBackend: complete");
-    return out.str();
+    return {true, out.str()};
 }
 
-std::string StartPublisher(const std::string& pcIpv4, uint16_t port) {
+StartResult StartPublisher(const std::string& pcIpv4, uint16_t port) {
     std::lock_guard<std::mutex> lock(gPublisherMutex);
 
     pico_ot::bridge::PublisherConfig config;
@@ -403,7 +408,9 @@ std::string StartPublisher(const std::string& pcIpv4, uint16_t port) {
 
     std::string error;
     if (!gPublisher.Start(config, &error)) {
-        return "Bridge start failed: " + error;
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "BRIDGE start failed pc=%s:%u error=%s",
+                            pcIpv4.c_str(), static_cast<unsigned>(port), error.c_str());
+        return {false, "Bridge start failed: " + error};
     }
 
     gPublisherErrorLogged = false;
@@ -419,7 +426,7 @@ std::string StartPublisher(const std::string& pcIpv4, uint16_t port) {
     out << "UDP bridge started\nPC: " << pcIpv4 << ":" << port
         << "\nLocal port: " << gPublisher.LocalPort()
         << "\nSession: " << gPublisher.SenderSessionId();
-    return out.str();
+    return {true, out.str()};
 }
 
 void StopPublisher() {
@@ -435,14 +442,24 @@ jstring ToJString(JNIEnv* env, const std::string& text) {
     return env->NewStringUTF(text.c_str());
 }
 
+jobject ToStartResult(JNIEnv* env, const StartResult& result) {
+    const jclass type = env->FindClass("com/orz/picootbackendtest/StartResult");
+    if (type == nullptr) return nullptr;
+    const jmethodID constructor = env->GetMethodID(type, "<init>", "(ZLjava/lang/String;)V");
+    if (constructor == nullptr) return nullptr;
+    const jstring message = ToJString(env, result.message);
+    if (message == nullptr) return nullptr;
+    return env->NewObject(type, constructor, result.success ? JNI_TRUE : JNI_FALSE, message);
+}
+
 } // namespace
 
-extern "C" JNIEXPORT jstring JNICALL
+extern "C" JNIEXPORT jobject JNICALL
 Java_com_orz_picootbackendtest_MainActivity_nativeStart(JNIEnv* env, jclass) {
     LogInfo("JNI nativeStart: enter");
-    const std::string result = StartBackend();
+    const StartResult result = StartBackend();
     LogInfo("JNI nativeStart: return");
-    return ToJString(env, result);
+    return ToStartResult(env, result);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -467,21 +484,33 @@ Java_com_orz_picootbackendtest_MainActivity_nativeReinitialize(JNIEnv* env, jcla
     return ToJString(env, "Tracker map reinitialized; clock mapping reset");
 }
 
-extern "C" JNIEXPORT jstring JNICALL
+extern "C" JNIEXPORT jobject JNICALL
 Java_com_orz_picootbackendtest_MainActivity_nativeStartBridge(
     JNIEnv* env, jclass, jstring pcIpv4, jint port) {
     if (pcIpv4 == nullptr || port <= 0 || port > 65535) {
-        return ToJString(env, "Bridge start failed: invalid endpoint");
+        StopPublisher();
+        return ToStartResult(env, {false, "Bridge start failed: invalid endpoint"});
     }
 
     const char* chars = env->GetStringUTFChars(pcIpv4, nullptr);
     if (chars == nullptr) {
-        return ToJString(env, "Bridge start failed: invalid PC IPv4");
+        return nullptr;  // Preserve the pending JNI allocation exception.
     }
     const std::string ip(chars);
     env->ReleaseStringUTFChars(pcIpv4, chars);
 
-    return ToJString(env, StartPublisher(ip, static_cast<uint16_t>(port)));
+    return ToStartResult(env, StartPublisher(ip, static_cast<uint16_t>(port)));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeIsNumericIpv4(
+    JNIEnv* env, jclass, jstring pcIpv4) {
+    if (pcIpv4 == nullptr) return JNI_FALSE;
+    const char* chars = env->GetStringUTFChars(pcIpv4, nullptr);
+    if (chars == nullptr) return JNI_FALSE;
+    const bool valid = pico_ot::bridge::IsNumericIpv4(chars);
+    env->ReleaseStringUTFChars(pcIpv4, chars);
+    return valid ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL
