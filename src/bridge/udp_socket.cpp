@@ -54,7 +54,18 @@ void SetError(std::string* error, const char* prefix) {
 #endif
 }
 
+bool ParseNumericIpv4(const std::string& address, in_addr& parsed) {
+    // inet_pton takes a C string; reject hidden suffixes after an embedded NUL.
+    return address.find('\0') == std::string::npos &&
+           ::inet_pton(AF_INET, address.c_str(), &parsed) == 1;
+}
+
 }  // namespace
+
+bool IsNumericIpv4(const std::string& address) {
+    in_addr parsed{};
+    return ParseNumericIpv4(address, parsed);
+}
 
 UdpSocket::~UdpSocket() {
     Close();
@@ -204,7 +215,7 @@ bool UdpSocket::SendTo(const UdpEndpoint& endpoint,
     sockaddr_in remote{};
     remote.sin_family = AF_INET;
     remote.sin_port = htons(endpoint.port);
-    if (::inet_pton(AF_INET, endpoint.address.c_str(), &remote.sin_addr) != 1) {
+    if (!ParseNumericIpv4(endpoint.address, remote.sin_addr)) {
         if (error) {
             *error = "UDP endpoint must be a numeric IPv4 address";
         }
