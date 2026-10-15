@@ -1,6 +1,7 @@
 #include "runtime/current_firmware_adapter.hpp"
 
 #include "internal/decoder.hpp"
+#include "internal/startup_diagnostics.hpp"
 
 #include <dlfcn.h>
 #include <elf.h>
@@ -183,6 +184,7 @@ CurrentFirmwareRuntimeAdapter::CurrentFirmwareRuntimeAdapter() : impl_(new Impl(
 CurrentFirmwareRuntimeAdapter::~CurrentFirmwareRuntimeAdapter() { Stop(); delete impl_; }
 
 Status CurrentFirmwareRuntimeAdapter::Start(const RuntimeConfig& config) {
+    internal::TraceStartupEvent("runtime.start.enter");
 #if !defined(__ANDROID__) || !defined(__aarch64__)
     (void)config;
     return {StatusCode::UnsupportedPlatform, 0, "current PICO runtime adapter requires Android arm64"};
@@ -198,6 +200,7 @@ Status CurrentFirmwareRuntimeAdapter::Start(const RuntimeConfig& config) {
     }
 
     impl_->library = OpenTrackingClient();
+    internal::TraceStartupEvent("runtime.dlopen.return", impl_->library != nullptr ? 1 : 0);
     if (impl_->library == nullptr) {
         const char* e = dlerror();
         return {StatusCode::LibraryOpenFailed, 0, e ? e : "dlopen(libtrackingclient.pxr.so) failed"};
@@ -250,7 +253,9 @@ Status CurrentFirmwareRuntimeAdapter::Start(const RuntimeConfig& config) {
     }
 
     alignas(16) uintptr_t scratch[2] = {kScratch0, kScratch1};
+    internal::TraceStartupEvent("runtime.get_instance.enter");
     const uintptr_t instanceRaw = pico_ot_call_noarg_with_sret_scratch(getInstance, scratch);
+    internal::TraceStartupEvent("runtime.get_instance.return", instanceRaw != 0 ? 1 : 0);
     if (scratch[0] != kScratch0 || instanceRaw == 0) {
         Stop();
         return {StatusCode::RuntimeAbiMismatch, 0, "TrackingClient::getInstance ABI did not match recovered register-return behavior"};
@@ -261,8 +266,11 @@ Status CurrentFirmwareRuntimeAdapter::Start(const RuntimeConfig& config) {
     impl_->getConnectState = reinterpret_cast<GetConnectStateFn>(enumerate);
     impl_->getBodyTrackerData = reinterpret_cast<GetBodyTrackerDataFn>(bodyAddress);
 
+    internal::TraceStartupEvent("runtime.init_tracker_map.enter");
     impl_->initTrackerMap(impl_->instance);
+    internal::TraceStartupEvent("runtime.init_tracker_map.return");
     impl_->started = true;
+    internal::TraceStartupEvent("runtime.start.return");
     return Status::Ok();
 #endif
 }
@@ -303,21 +311,30 @@ Status CurrentFirmwareRuntimeAdapter::EnumerateTrackers(std::vector<DeviceInfo>&
     }
 
     RawVector3Ptr raw{};
+    internal::TraceStartupEvent("runtime.enumerate.enter");
     const int32_t rc = impl_->getConnectState(impl_->instance, &raw);
+    internal::TraceStartupEvent("runtime.enumerate.vendor_return", rc);
     impl_->enumerationUsed = true;
     if (rc != 0) return {StatusCode::VendorError, rc, "getSwiftTrackerConnectState failed"};
 
-    if (raw.begin == nullptr && raw.end == nullptr && raw.cap == nullptr) return Status::Ok();
+    if (raw.begin == nullptr && raw.end == nullptr && raw.cap == nullptr) {
+        internal::TraceStartupEvent("runtime.enumerate.vector_span_bytes", 0);
+        internal::TraceStartupEvent("runtime.enumerate.vector_count", 0);
+        internal::TraceStartupEvent("runtime.enumerate.accepted_count", 0);
+        return Status::Ok();
+    }
     if (raw.begin == nullptr || raw.end == nullptr || raw.cap == nullptr ||
         raw.begin > raw.end || raw.end > raw.cap) {
         return {StatusCode::RuntimeAbiMismatch, rc, "vendor TrackerInfo vector descriptor is invalid"};
     }
 
     const size_t span = static_cast<size_t>(raw.end - raw.begin);
+    internal::TraceStartupEvent("runtime.enumerate.vector_span_bytes", static_cast<int64_t>(span));
     if ((span % kTrackerInfoSize) != 0) {
         return {StatusCode::RuntimeAbiMismatch, rc, "TrackerInfo vector span is not a multiple of 72 bytes"};
     }
     const size_t count = span / kTrackerInfoSize;
+    internal::TraceStartupEvent("runtime.enumerate.vector_count", static_cast<int64_t>(count));
     if (count > kMaxTrackerInfos) {
         return {StatusCode::RuntimeAbiMismatch, rc, "TrackerInfo count exceeds recovered five-tracker bound"};
     }
@@ -344,6 +361,7 @@ Status CurrentFirmwareRuntimeAdapter::EnumerateTrackers(std::vector<DeviceInfo>&
         impl_->diagnostics.intentionallyLeakedEnumerationBytes +=
             static_cast<uint64_t>(raw.cap - raw.begin);
     }
+    internal::TraceStartupEvent("runtime.enumerate.accepted_count", static_cast<int64_t>(devices.size()));
     return Status::Ok();
 }
 

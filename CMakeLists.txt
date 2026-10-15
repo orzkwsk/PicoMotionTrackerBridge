@@ -16,6 +16,7 @@ set(PICO_OT_SOURCES
     src/backend.cpp
     src/c_api.cpp
     src/internal/decoder.cpp
+    src/internal/startup_diagnostics.cpp
     src/internal/clock_mapper.cpp)
 
 if(ANDROID AND CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
@@ -241,6 +242,14 @@ endif()
 
 if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     enable_testing()
+    add_executable(pico_backend_lifecycle_tests
+        tests/backend_lifecycle_tests.cpp
+        src/backend.cpp
+        src/internal/clock_mapper.cpp
+        src/internal/startup_diagnostics.cpp)
+    target_compile_features(pico_backend_lifecycle_tests PRIVATE cxx_std_17)
+    target_include_directories(pico_backend_lifecycle_tests PRIVATE include src)
+    add_test(NAME pico_backend_lifecycle_tests COMMAND pico_backend_lifecycle_tests)
     add_executable(pico_runtime_diagnostic_tests tests/runtime_diagnostic_tests.cpp)
     target_link_libraries(pico_runtime_diagnostic_tests PRIVATE pico_runtime_diagnostic PicoOT::BridgePublisher)
     if(WIN32)
