@@ -84,6 +84,13 @@ bool Publisher::Start(const PublisherConfig& config, std::string* error) {
         return false;
     }
 
+    if (!IsNumericIpv4(config.pcEndpoint.address)) {
+        if (error) {
+            *error = "publisher PC endpoint must be a numeric IPv4 address";
+        }
+        return false;
+    }
+
     if (!socket_.Open(config.localPort, true, error)) {
         return false;
     }

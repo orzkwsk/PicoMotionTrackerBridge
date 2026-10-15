@@ -134,10 +134,93 @@ void TestClockSyncResponse() {
     REQUIRE(response.serverSendMonotonicNs >= response.serverReceiveMonotonicNs);
 }
 
+void TestEndpointValidation() {
+    Publisher publisher;
+    PublisherConfig config;
+    std::string error;
+    for (const char* address : {"127.0.0.1", "192.168.1.10", "10.0.0.2", "255.255.255.255"}) {
+        config.pcEndpoint = {address, 29765};
+        REQUIRE(publisher.Start(config, &error));
+        REQUIRE(publisher.IsRunning());
+    }
+    for (const char* address : {"", "localhost", "example.local", "999.1.1.1",
+                                "192.168.1", "192.168.1.1:29765", "::1", "999.999.999.999"}) {
+        // Starting with a bad endpoint also tears down a previously running sender.
+        config.pcEndpoint = {"127.0.0.1", 29765};
+        REQUIRE(publisher.Start(config, &error));
+        config.pcEndpoint.address = address;
+        error.clear();
+        REQUIRE(!publisher.Start(config, &error));
+        REQUIRE(!error.empty());
+        REQUIRE(!publisher.IsRunning());
+        REQUIRE(publisher.LocalPort() == 0);
+        REQUIRE(publisher.SenderSessionId() == 0);
+    }
+    config.pcEndpoint = {"127.0.0.1", 0};
+    REQUIRE(!publisher.Start(config, &error));
+    REQUIRE(!publisher.IsRunning());
+}
+
+void TestRestartAndStop() {
+    UdpSocket pcA;
+    UdpSocket pcB;
+    std::string error;
+    REQUIRE(pcA.Open(0, true, &error));
+    REQUIRE(pcB.Open(0, true, &error));
+    Publisher publisher;
+    PublisherConfig config;
+    pico_ot::DeviceInfo device;
+    device.serial = "restart-test";
+    uint64_t lastSession = 0;
+    for (int i = 0; i < 20; ++i) {
+        UdpSocket& destination = (i % 2) == 0 ? pcA : pcB;
+        config.pcEndpoint = {"127.0.0.1", destination.BoundPort()};
+        REQUIRE(publisher.Start(config, &error));
+        REQUIRE(publisher.SenderSessionId() != 0);
+        REQUIRE(publisher.SenderSessionId() != lastSession);
+        lastSession = publisher.SenderSessionId();
+        REQUIRE(publisher.SendDeviceState(device, &error));
+        DecodedPacket decoded;
+        UdpEndpoint source;
+        REQUIRE(ReceivePacket(destination, decoded, source));
+        REQUIRE(decoded.senderSessionId == lastSession);
+        REQUIRE(decoded.sequence == 0);
+        REQUIRE(source.port == publisher.LocalPort());
+    }
+    publisher.Stop();
+    publisher.Stop();
+    REQUIRE(!publisher.IsRunning());
+    REQUIRE(publisher.LocalPort() == 0);
+    REQUIRE(publisher.SenderSessionId() == 0);
+    REQUIRE(!publisher.SendDeviceState(device, &error));
+    REQUIRE(!publisher.PumpControl(&error));
+}
+
+void TestSocketFailureAndRecovery() {
+    UdpSocket occupied;
+    std::string error;
+    REQUIRE(occupied.Open(0, true, &error, true));
+    Publisher publisher;
+    PublisherConfig config;
+    config.pcEndpoint = {"127.0.0.1", 29765};
+    config.localPort = occupied.BoundPort();
+    REQUIRE(!publisher.Start(config, &error));
+    REQUIRE(!error.empty());
+    REQUIRE(!publisher.IsRunning());
+    REQUIRE(publisher.LocalPort() == 0);
+    REQUIRE(publisher.SenderSessionId() == 0);
+    config.localPort = 0;
+    REQUIRE(publisher.Start(config, &error));
+    REQUIRE(publisher.IsRunning());
+}
+
 }  // namespace
 
 int main() {
     TestPoseAndDevicePackets();
     TestClockSyncResponse();
+    TestEndpointValidation();
+    TestRestartAndStop();
+    TestSocketFailureAndRecovery();
     return 0;
 }

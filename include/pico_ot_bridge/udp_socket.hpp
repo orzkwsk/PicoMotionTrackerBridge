@@ -12,6 +12,10 @@ struct UdpEndpoint {
     uint16_t port = 0;
 };
 
+// Literal syntax only: no DNS, IPv6, or destination reachability policy.
+// Uses the same parser as SendTo and is safe to call before opening a socket.
+[[nodiscard]] bool IsNumericIpv4(const std::string& address);
+
 enum class UdpReceiveStatus : uint8_t {
     Packet = 0,
     WouldBlock,
