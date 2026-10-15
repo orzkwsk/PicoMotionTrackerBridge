@@ -1,5 +1,6 @@
 param(
-    [string]$UnityVersion = "2022.3.22f1"
+    [string]$UnityVersion = "2022.3.22f1",
+    [switch]$BuildSmokeTests
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,13 +87,15 @@ Copy-Item -Force $testSo.FullName (Join-Path $jniLibDir "libpico_ot_backend_test
 
 Write-Host ""
 Write-Host "Building Android APK..."
+$gradleTasks = @(':app:assembleDebug')
+if ($BuildSmokeTests) { $gradleTasks += ':app:assembleDebugAndroidTest' }
 Push-Location $root
 try {
     & $javaExe `
         -classpath $gradleClasspath `
         org.gradle.launcher.GradleMain `
         --no-daemon `
-        :app:assembleDebug
+        @gradleTasks
     if ($LASTEXITCODE -ne 0) { throw "Gradle build failed with exit code $LASTEXITCODE" }
 } finally {
     Pop-Location
@@ -102,3 +105,6 @@ $apk = Join-Path $root "app\build\outputs\apk\debug\app-debug.apk"
 if (-not (Test-Path $apk)) { throw "APK was not produced: $apk" }
 Write-Host ""
 Write-Host "APK: $apk"
+if ($BuildSmokeTests) {
+    Write-Host "Smoke test APK: $(Join-Path $root 'app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk')"
+}
