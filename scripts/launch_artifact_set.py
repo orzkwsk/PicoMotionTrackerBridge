@@ -18,6 +18,11 @@ def verify(package,component):
     for key in ['gui','service']:
         if spec[key] not in m['files_sha256']:raise ValueError('Unpinned executable: '+key)
     args=[str(inside(package,spec['gui'])),str(inside(package,spec['root'])),'--service-exe',str(inside(package,spec['service']))]+spec.get('arguments',[])
+    for option,relative in spec.get('path_arguments',{}).items():
+        if option!='--installation':raise ValueError('Unsupported artifact path argument')
+        path=inside(package,relative)
+        if not path.is_file():raise ValueError('Installation profile missing')
+        args.extend([option,str(path)])
     if '--control-window-only' in args:raise ValueError('Normal entry must own tray/service lifetime')
     return args,m['compatibility_id']
 def select(catalog,component):
