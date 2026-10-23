@@ -1,6 +1,7 @@
 #pragma once
 #include "monaka/protocol/v2/codec.hpp"
 #include "pico_ot_bridge/receiver.hpp"
+#include "observation_identity.hpp"
 #include <functional>
 #include <map>
 
@@ -13,8 +14,8 @@ struct ObservationConfig {
     int64_t staleTimeoutNs = 500'000'000;
     size_t maxDevices = 256;
     std::function<std::string()> newUuid;
-    // Must persist the revision before returning it; failure disables the new session.
-    std::function<uint32_t()> nextSpaceRevision;
+    // Called before publication; persistence failure prevents output.
+    std::function<SourceSpaceState(uint64_t)> sourceSpace;
 };
 
 // PC-only conversion, always using immutable Receiver admission times, never
@@ -36,6 +37,7 @@ private:
     ObservationConfig config_;
     std::string session_, clock_;
     uint64_t sender_ = 0, rejected_ = 0;
+    bool spaceKnown_=false;
     std::map<std::string, Progress> progress_;
     void Rotate();
     template<class T> void Header(T& value, const std::string& serial,
