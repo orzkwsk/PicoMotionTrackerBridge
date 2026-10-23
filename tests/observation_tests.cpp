@@ -21,7 +21,7 @@ struct Rig {
         pico_ot::ObservationConfig c;
         c.sourceId="persistent-pico-source"; c.spaceId="configured-map"; c.spaceRevision=revision;
         c.clockEpochPcNs=epoch; c.newUuid=pico_ot::NewObservationUuid;
-        c.nextSpaceRevision=[this] { return ++revision; }; c.maxDevices=limit; return c;
+        c.sourceSpace=[this](uint64_t) { return pico_ot::SourceSpaceState{revision,true}; }; c.maxDevices=limit; return c;
     }
     Rig() {
         b::ReceiverConfig c; c.listenPort=0; c.exclusiveBind=true; c.rejectRetiredSessions=true;
@@ -107,7 +107,7 @@ void SessionAndWrap() {
     r.Pose(0,Pose("NEW-SERIAL"),202); auto reset=a.Collect(r.receiver,b::MonotonicNowNs()); RoundTrip(reset);
     const auto& next=Find<p::TrackerObservation>(reset);
     Check(next.session_id!=original.session_id && next.clock_id==original.clock_id && next.sequence==0,"session reset/clock identity");
-    Check(next.coordinate_space.revision==original.coordinate_space.revision+1,"map revision reset");
+    Check(next.coordinate_space.revision==original.coordinate_space.revision,"sender session does not imply space change");
     Check(!r.receiver.Find(original.device_id),"old device cache survived");
     r.Pose(300,Pose(),101);
     Check(r.receiver.ActiveSenderSessionId()==202 && a.Collect(r.receiver,b::MonotonicNowNs()).empty(),"retired session resurrected");
@@ -170,7 +170,7 @@ void Identity() {
     const auto path=std::filesystem::current_path()/("identity-test-"+pico_ot::NewObservationUuid()+".conf");
     std::string source,space; uint32_t revision;
     { pico_ot::ObservationIdentity first(path); source=first.SourceId(); space=first.SpaceId(); revision=first.Revision(); }
-    { pico_ot::ObservationIdentity next(path); Check(next.SourceId()==source && next.SpaceId()==space && next.Revision()==revision+1,"restart identity/revision"); }
+    { pico_ot::ObservationIdentity next(path); Check(next.SourceId()==source && next.SpaceId()==space && next.Revision()==revision,"restart preserves coordinate-space revision"); }
     Check(std::filesystem::remove(path),"identity cleanup");
 }
 int main() {

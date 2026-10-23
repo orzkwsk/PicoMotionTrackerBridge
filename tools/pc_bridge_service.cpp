@@ -13,6 +13,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <Windows.h>
+#include "pico_ot_bridge/service_lifecycle.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -361,9 +362,14 @@ void PublishStatus(StatusMapping& status,
 }  // namespace
 
 int main(int argc, char** argv) {
+    const std::wstring lifecycleName = L"Local\\PicoOTBridge_ServiceLifecycle";
+    if (argc == 2 && std::string(argv[1]) == "--stop")
+        return pc_service_lifecycle::StopAndWait(lifecycleName, 5000);
     uint16_t observationPort = 29810;
     std::filesystem::path identityPath;
     std::string diagnosticPath;
+    DWORD trayOwner = 0;
+    std::uint64_t trayOwnerCreated = 0;
     try {
         for (int i=1;i<argc;++i) {
             const std::string option=argv[i];
@@ -374,7 +380,7 @@ int main(int argc, char** argv) {
                 return 0;
             }
             if (option=="--help") {
-                std::cout << "PICO PC service [--observation-port PORT] [--observation-config PATH] [--diagnostic-jsonl PATH] [--version [--json]]\n";
+                std::cout << "PICO PC service [--observation-port PORT] [--observation-config PATH] [--diagnostic-jsonl PATH] --tray-owner PID:FILETIME [--stop] [--version [--json]]\n";
                 return 0;
             }
             if (i+1>=argc) throw std::invalid_argument("missing option value");
@@ -386,9 +392,14 @@ int main(int argc, char** argv) {
                 observationPort=static_cast<uint16_t>(port);
             } else if (option=="--observation-config") identityPath=std::filesystem::u8path(value);
             else if(option=="--diagnostic-jsonl") diagnosticPath=value;
+            else if(option=="--tray-owner") pc_service_lifecycle::ParseOwner(value,trayOwner,trayOwnerCreated);
             else throw std::invalid_argument("unknown option");
         }
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
+    if(!trayOwner) {
+        std::cerr << "Start through the PICO Receiver tray. A process-lifetime owner is required.\n";
+        return 1;
+    }
     HANDLE instanceMutex = CreateMutexW(
         nullptr,
         TRUE,
@@ -404,6 +415,13 @@ int main(int argc, char** argv) {
     }
 
     SetConsoleCtrlHandler(ConsoleHandler, TRUE);
+    std::unique_ptr<pc_service_lifecycle::Endpoint> lifecycle;
+    try {
+        lifecycle = std::make_unique<pc_service_lifecycle::Endpoint>(lifecycleName, trayOwner, trayOwnerCreated);
+    } catch (const std::exception& e) {
+        std::cerr << "Service lifetime control unavailable: " << e.what() << '\n';
+        ReleaseMutex(instanceMutex); CloseHandle(instanceMutex); return 6;
+    }
     pico_ot::RuntimeDiagnostic diagnostic;
     if(!diagnosticPath.empty() && !diagnostic.Start(diagnosticPath))
         std::cerr << "Diagnostic output unavailable; production service continues.\n";
@@ -473,7 +491,15 @@ int main(int argc, char** argv) {
         config.spaceRevision=observationIdentity->Revision();
         config.clockEpochPcNs=pico_ot::bridge::MonotonicNowNs();
         config.newUuid=pico_ot::NewObservationUuid;
-        config.nextSpaceRevision=[&] { return observationIdentity->AdvanceRevision(); };
+        config.sourceSpace=[&,lastSender=uint64_t(0),lastRevision=uint32_t(0),lastKnown=false](uint64_t sender) mutable {
+            const auto state=observationIdentity->RefreshSpace(sender);
+            if(sender!=lastSender||state.revision!=lastRevision||state.known!=lastKnown){
+                std::cout<<"SOURCE_SPACE sender_session="<<sender<<" generation="<<observationIdentity->Generation()
+                         <<" revision="<<state.revision<<" status="<<(state.known?"known":"unknown")<<std::endl;
+                lastSender=sender;lastRevision=state.revision;lastKnown=state.known;
+            }
+            return state;
+        };
         observationAdapter=std::make_unique<pico_ot::PicoObservationAdapter>(std::move(config));
         if (!observationPublisher.Start(observationPort,&error)) throw std::runtime_error(error);
         std::cout << "C1 Observation -> 127.0.0.1:" << observationPort
@@ -495,7 +521,9 @@ int main(int argc, char** argv) {
     bool receiverErrorLogged = false;
     diagnostic.Event("component_ready",{{"inventory_complete",false},{"inventory_boundary","accepted receiver packets only"}});
 
+    lifecycle->MarkReady();
     while (gRun.load()) {
+        if (lifecycle->StopRequested()) break;
         const int64_t nowNs = pico_ot::bridge::MonotonicNowNs();
 
         bool reloadRoute = false;

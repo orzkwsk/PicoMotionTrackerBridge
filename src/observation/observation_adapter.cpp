@@ -24,7 +24,7 @@ std::optional<p::Battery> Battery(const bridge::ReceivedTrackerState& state, int
 }
 }
 PicoObservationAdapter::PicoObservationAdapter(ObservationConfig config) : config_(std::move(config)) {
-    if (!config_.newUuid || !config_.nextSpaceRevision || config_.clockEpochPcNs < 0 ||
+    if (!config_.newUuid || !config_.sourceSpace || config_.clockEpochPcNs < 0 ||
         config_.staleTimeoutNs <= 0 || config_.maxDevices == 0) throw std::invalid_argument("invalid Observation configuration");
     session_ = config_.newUuid(); clock_ = config_.newUuid();
     p::ObservationDeviceState probe;
@@ -34,10 +34,8 @@ PicoObservationAdapter::PicoObservationAdapter(ObservationConfig config) : confi
     if (!p::EncodeEnvelope(probe,wire,error)) throw std::invalid_argument(error.message);
 }
 void PicoObservationAdapter::Rotate() {
-    const auto revision = config_.nextSpaceRevision();
-    if (revision <= config_.spaceRevision) throw std::runtime_error("space revision must increase; reconfigure before overflow");
     const auto session = config_.newUuid();
-    config_.spaceRevision = revision; session_ = session; progress_.clear();
+    session_ = session; progress_.clear();
 }
 bool PicoObservationAdapter::StampSentAt(p::Envelope& value, int64_t now) const {
     if (now < config_.clockEpochPcNs) return false;
@@ -62,6 +60,14 @@ std::vector<p::Envelope> PicoObservationAdapter::Collect(const bridge::Receiver&
     if (now < config_.clockEpochPcNs) { ++rejected_; return output; }
     const auto sender = receiver.ActiveSenderSessionId();
     if (!sender) return output;
+    const auto space=config_.sourceSpace(sender);
+    if(space.revision<config_.spaceRevision)throw std::runtime_error("source-space revision rollback");
+    if(space.revision!=config_.spaceRevision||space.known!=spaceKnown_){
+        config_.spaceRevision=space.revision;spaceKnown_=space.known;
+        // Reset sequence numbers only with a new input session. Otherwise a
+        // known/unknown transition can be rejected as stale by the consumer.
+        if(!progress_.empty())Rotate();
+    }
     if (sender != sender_) {
         if (sender_) Rotate();
         sender_ = sender;
@@ -96,7 +102,7 @@ std::vector<p::Envelope> PicoObservationAdapter::Collect(const bridge::Receiver&
                 v.validity.orientation = fresh && pose.orientationSamplePresent && OrientationSane(q);
                 // Sample sanity alone does not establish PICO rotation-only tracking
                 // during optical loss. Preserve diagnostics, but fail closed.
-                const bool full = v.validity.position && v.validity.orientation;
+                const bool full = spaceKnown_ && v.validity.position && v.validity.orientation;
                 v.validity = {full, full};
                 v.modality = full ? "full" : "none";
                 v.orientation_evidence = v.validity.orientation ? "sample_sanity" : "none";
