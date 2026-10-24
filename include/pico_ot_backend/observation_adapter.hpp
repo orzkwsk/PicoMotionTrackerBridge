@@ -2,6 +2,7 @@
 #include "monaka/protocol/v2/codec.hpp"
 #include "pico_ot_bridge/receiver.hpp"
 #include "pico_ot_backend/reacquire_admission.hpp"
+#include "observation_identity.hpp"
 #include <functional>
 #include <map>
 
@@ -9,7 +10,7 @@ namespace pico_ot {
 // Shared by production adapter and offline replay. Header/identity is caller-owned.
 AdmissionResult ApplyPicoAdmission(monaka::protocol::v2::TrackerObservation& observation,
     const bridge::PosePacket& raw, int64_t monotonicNs, bool fresh,
-    PicoReacquireAdmission& gate);
+    PicoReacquireAdmission& gate, bool sourceSpaceKnown = true);
 struct ObservationConfig {
     std::string sourceId;
     std::string spaceId;
@@ -18,8 +19,8 @@ struct ObservationConfig {
     int64_t staleTimeoutNs = 500'000'000;
     size_t maxDevices = 256;
     std::function<std::string()> newUuid;
-    // Must persist the revision before returning it; failure disables the new session.
-    std::function<uint32_t()> nextSpaceRevision;
+    // Called before publication; persistence failure prevents output.
+    std::function<SourceSpaceState(uint64_t)> sourceSpace;
     AdmissionConfig admission;
     // Capture raw pose separately from the effective protocol envelope. Must be
     // bounded/nonblocking; failures are counted and never bypass the gate.
@@ -50,6 +51,7 @@ private:
     std::string session_, clock_;
     uint64_t sender_ = 0, rejected_ = 0;
     uint64_t diagnosticErrors_ = 0;
+    bool spaceKnown_=false;
     std::map<std::string, Progress> progress_;
     void Rotate();
     template<class T> void Header(T& value, const std::string& serial,

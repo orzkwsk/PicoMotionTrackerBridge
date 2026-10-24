@@ -1,4 +1,9 @@
-param()
+param(
+    [switch]$BuildOnly,
+    [string]$OutputDirectory,
+    [string]$ServiceExecutable,
+    [switch]$TrayOnly
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -6,10 +11,18 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $GuiSource = Join-Path $RepoRoot "tools\steamvr_control_wpf.cs"
 $GuiTraySource = Join-Path $RepoRoot "tools\steamvr_control_tray.cs"
 $GuiMainSource = Join-Path $RepoRoot "tools\steamvr_control_gui_main.cs"
-$BuildDir = Join-Path $RepoRoot "build-gui"
+$GuiIconSource = Join-Path $RepoRoot "tools\app_icon.cs"
+$LifecycleSource = Join-Path $RepoRoot "tools\service_lifecycle_control.cs"
+$BlackIcon = Join-Path $RepoRoot "assets\icons\pico-tray-black.ico"
+$WhiteIcon = Join-Path $RepoRoot "assets\icons\pico-tray-white.ico"
+$BuildDir = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    Join-Path $RepoRoot "build-gui"
+} else {
+    [IO.Path]::GetFullPath($OutputDirectory)
+}
 $GuiExe = Join-Path $BuildDir "pico_ot_steamvr_control.exe"
 
-foreach ($path in @($GuiSource, $GuiTraySource, $GuiMainSource)) {
+foreach ($path in @($GuiSource, $GuiTraySource, $GuiMainSource, $GuiIconSource, $LifecycleSource, $BlackIcon, $WhiteIcon)) {
     if (-not (Test-Path $path)) {
         throw "SteamVR control GUI source was not found: $path"
     }
@@ -117,7 +130,7 @@ $WpfRefs = Get-WpfReferenceSet
 $needsBuild = -not (Test-Path $GuiExe)
 if (-not $needsBuild) {
     $exeTime = (Get-Item $GuiExe).LastWriteTimeUtc
-    foreach ($source in @($GuiSource, $GuiTraySource, $GuiMainSource, $PSCommandPath)) {
+    foreach ($source in @($GuiSource, $GuiTraySource, $GuiMainSource, $GuiIconSource, $LifecycleSource, $BlackIcon, $WhiteIcon, $PSCommandPath)) {
         if ((Get-Item $source).LastWriteTimeUtc -gt $exeTime) {
             $needsBuild = $true
             break
@@ -135,6 +148,9 @@ if ($needsBuild) {
         "/target:winexe",
         "/optimize+",
         "/out:$GuiExe",
+        "/win32icon:$BlackIcon",
+        "/resource:$BlackIcon,PicoOTBridge.Icons.Black",
+        "/resource:$WhiteIcon,PicoOTBridge.Icons.White",
         "/reference:System.dll",
         "/reference:System.Core.dll",
         "/reference:System.Drawing.dll",
@@ -145,7 +161,9 @@ if ($needsBuild) {
         "/reference:$($WpfRefs.SystemXaml)",
         $GuiSource,
         $GuiTraySource,
-        $GuiMainSource
+        $GuiMainSource,
+        $GuiIconSource,
+        $LifecycleSource
     )
 
     & $Csc @compilerArgs
@@ -156,4 +174,12 @@ if ($needsBuild) {
 }
 
 Write-Host "WPF GUI/tray: $GuiExe"
-Start-Process -FilePath $GuiExe -ArgumentList @($RepoRoot)
+if (-not $BuildOnly) {
+    if (-not $ServiceExecutable) {
+        $ServiceExecutable = & (Join-Path $PSScriptRoot "build_pc_bridge_service.ps1") | Select-Object -Last 1
+    }
+    if (-not $ServiceExecutable -or -not (Test-Path -LiteralPath $ServiceExecutable)) { throw "Selected PICO Receiver executable unavailable" }
+    $guiArguments = @('"' + $RepoRoot + '"', '--service-exe', '"' + $ServiceExecutable + '"')
+    if ($TrayOnly) { $guiArguments += '--tray-only' }
+    Start-Process -FilePath $GuiExe -ArgumentList $guiArguments -WindowStyle Hidden
+}

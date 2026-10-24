@@ -1,5 +1,7 @@
 # PicoMotionTrackerBridge
 
+Current local HIL candidate: use `Start_Receiver.cmd` with a verified artifact catalog. See [docs/source-space-authority.md](docs/source-space-authority.md). Historical build/deploy instructions below are developer workflows, not normal startup.
+
 Version **0.1**
 
 Native PICO Motion Tracker bridge derived from the `Pico4Ultra_ResearchTools` native-tracker investigation.
