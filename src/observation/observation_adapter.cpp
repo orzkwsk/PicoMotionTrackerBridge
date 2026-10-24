@@ -24,14 +24,17 @@ std::optional<p::Battery> Battery(const bridge::ReceivedTrackerState& state, int
 }
 }
 AdmissionResult ApplyPicoAdmission(p::TrackerObservation& v, const bridge::PosePacket& pose,
-    int64_t time, bool fresh, PicoReacquireAdmission& gate) {
+    int64_t time, bool fresh, PicoReacquireAdmission& gate, bool sourceSpaceKnown) {
     if (Finite(pose.positionMeters)) v.position=Vec(pose.positionMeters);
     const auto& q=pose.orientationXyzw;
     if (std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w))
         v.orientation=p::QuatXyzw{q.x,q.y,q.z,q.w};
     const bool rawFull=pose.positionValid && pose.orientationSamplePresent &&
         v.position.has_value() && OrientationSane(q);
-    const auto result=gate.Process(pose,time,rawFull,fresh);
+    // Source-space authority is a prerequisite even when admission is disabled.
+    // Unknown space resets confirmation without relabeling a sane raw pose invalid.
+    auto result=gate.Process(pose,time,rawFull,fresh && sourceSpaceKnown);
+    if (!sourceSpaceKnown) result.reason="source_space_unknown";
     const bool full=result.effective_valid;
     v.validity={full,full}; v.modality=full ? "full" : "none";
     v.orientation_evidence=full ? "sample_sanity" : "none";
@@ -46,7 +49,7 @@ AdmissionResult ApplyPicoAdmission(p::TrackerObservation& v, const bridge::PoseP
 }
 PicoObservationAdapter::PicoObservationAdapter(ObservationConfig config) : config_(std::move(config)) {
     config_.admission.Validate();
-    if (!config_.newUuid || !config_.nextSpaceRevision || config_.clockEpochPcNs < 0 ||
+    if (!config_.newUuid || !config_.sourceSpace || config_.clockEpochPcNs < 0 ||
         config_.staleTimeoutNs <= 0 || config_.maxDevices == 0) throw std::invalid_argument("invalid Observation configuration");
     session_ = config_.newUuid(); clock_ = config_.newUuid();
     p::ObservationDeviceState probe;
@@ -56,10 +59,8 @@ PicoObservationAdapter::PicoObservationAdapter(ObservationConfig config) : confi
     if (!p::EncodeEnvelope(probe,wire,error)) throw std::invalid_argument(error.message);
 }
 void PicoObservationAdapter::Rotate() {
-    const auto revision = config_.nextSpaceRevision();
-    if (revision <= config_.spaceRevision) throw std::runtime_error("space revision must increase; reconfigure before overflow");
     const auto session = config_.newUuid();
-    config_.spaceRevision = revision; session_ = session; progress_.clear();
+    session_ = session; progress_.clear();
 }
 bool PicoObservationAdapter::StampSentAt(p::Envelope& value, int64_t now) const {
     if (now < config_.clockEpochPcNs) return false;
@@ -84,6 +85,14 @@ std::vector<p::Envelope> PicoObservationAdapter::Collect(const bridge::Receiver&
     if (now < config_.clockEpochPcNs) { ++rejected_; return output; }
     const auto sender = receiver.ActiveSenderSessionId();
     if (!sender) return output;
+    const auto space=config_.sourceSpace(sender);
+    if(space.revision<config_.spaceRevision)throw std::runtime_error("source-space revision rollback");
+    if(space.revision!=config_.spaceRevision||space.known!=spaceKnown_){
+        config_.spaceRevision=space.revision;spaceKnown_=space.known;
+        // Reset sequence numbers only with a new input session. Otherwise a
+        // known/unknown transition can be rejected as stale by the consumer.
+        if(!progress_.empty())Rotate();
+    }
     if (sender != sender_) {
         if (sender_) Rotate();
         sender_ = sender;
@@ -111,7 +120,7 @@ std::vector<p::Envelope> PicoObservationAdapter::Collect(const bridge::Receiver&
                 Header(v,serial,seen.nextPose++,received,now);
                 const auto& pose = state->pose;
                 const bool fresh = now-received <= config_.staleTimeoutNs;
-                const auto admission=ApplyPicoAdmission(v,pose,received,fresh,seen.admission);
+                const auto admission=ApplyPicoAdmission(v,pose,received,fresh,seen.admission,spaceKnown_);
                 if (config_.admissionDiagnostic) {
                     try { config_.admissionDiagnostic(pose,admission,v); }
                     catch (...) { ++diagnosticErrors_; }
