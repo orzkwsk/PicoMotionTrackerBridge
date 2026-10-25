@@ -18,11 +18,12 @@ struct Rig {
     b::UdpSocket sender;
     int64_t epoch=b::MonotonicNowNs();
     uint32_t revision=10;
+    bool spaceKnown=true;
     pico_ot::ObservationConfig Config(size_t limit=256) {
         pico_ot::ObservationConfig c;
         c.sourceId="persistent-pico-source"; c.spaceId="configured-map"; c.spaceRevision=revision;
         c.clockEpochPcNs=epoch; c.newUuid=pico_ot::NewObservationUuid;
-        c.nextSpaceRevision=[this] { return ++revision; }; c.maxDevices=limit; return c;
+        c.sourceSpace=[this](uint64_t) { return pico_ot::SourceSpaceState{revision,spaceKnown}; }; c.maxDevices=limit; return c;
     }
     Rig() {
         b::ReceiverConfig c; c.listenPort=0; c.exclusiveBind=true; c.rejectRetiredSessions=true;
@@ -108,7 +109,7 @@ void SessionAndWrap() {
     r.Pose(0,Pose("NEW-SERIAL"),202); auto reset=a.Collect(r.receiver,b::MonotonicNowNs()); RoundTrip(reset);
     const auto& next=Find<p::TrackerObservation>(reset);
     Check(next.session_id!=original.session_id && next.clock_id==original.clock_id && next.sequence==0,"session reset/clock identity");
-    Check(next.coordinate_space.revision==original.coordinate_space.revision+1,"map revision reset");
+    Check(next.coordinate_space.revision==original.coordinate_space.revision,"sender session does not imply space change");
     Check(!r.receiver.Find(original.device_id),"old device cache survived");
     r.Pose(300,Pose(),101);
     Check(r.receiver.ActiveSenderSessionId()==202 && a.Collect(r.receiver,b::MonotonicNowNs()).empty(),"retired session resurrected");
@@ -171,7 +172,7 @@ void Identity() {
     const auto path=std::filesystem::current_path()/("identity-test-"+pico_ot::NewObservationUuid()+".conf");
     std::string source,space; uint32_t revision;
     { pico_ot::ObservationIdentity first(path); source=first.SourceId(); space=first.SpaceId(); revision=first.Revision(); }
-    { pico_ot::ObservationIdentity next(path); Check(next.SourceId()==source && next.SpaceId()==space && next.Revision()==revision+1,"restart identity/revision"); }
+    { pico_ot::ObservationIdentity next(path); Check(next.SourceId()==source && next.SpaceId()==space && next.Revision()==revision,"restart preserves coordinate-space revision"); }
     Check(std::filesystem::remove(path),"identity cleanup");
 }
 void AdmissionBoundary() {
@@ -235,8 +236,47 @@ void AdmissionPacketBurst() {
         "same-Pump invalid sample hidden by latest cache");
     Check(adapter.Collect(r.receiver,b::MonotonicNowNs()).empty(),"loop republished accepted sample");
 }
+void AdmissionSourceSpaceAuthority() {
+    for (bool enabled : {false,true}) {
+        Rig r; r.spaceKnown=false; auto config=r.Config();
+        Check(!config.admission.enabled,"admission unexpectedly enabled by default");
+        config.admission={enabled,0,2};
+        pico_ot::AdmissionResult last;
+        config.admissionDiagnostic=[&](const auto&,const auto& result,const auto& v) {
+            last=result; Check(result.effective_valid==v.validity.position,"source-space diagnostic mismatch");
+        };
+        pico_ot::PicoObservationAdapter adapter(config);
+        auto sample=[&](uint32_t seq,uint64_t sender=101) {
+            r.Pose(seq,Pose(),sender);auto values=adapter.Collect(r.receiver,b::MonotonicNowNs());
+            RoundTrip(values);return Find<p::TrackerObservation>(values);
+        };
+        auto unknown=sample(1);
+        Check(!unknown.validity.position && !unknown.validity.orientation && !unknown.linear_velocity &&
+              unknown.modality=="none" && unknown.tracking_state=="lost","unknown space bypassed authority");
+        Check(last.raw_valid && !last.effective_valid && std::string(last.reason)=="source_space_unknown",
+              "raw validity confused with source-space authority");
+        Check(unknown.position.has_value()==!enabled && unknown.orientation.has_value()==!enabled,
+              "disabled compatibility or enabled raw isolation changed");
+        r.spaceKnown=true;
+        auto first=sample(2);Check(first.session_id!=unknown.session_id && first.sequence==0,
+                                  "space-known transition reused sequence/session");
+        Check(first.validity.position==!enabled,"new authority inherited admission confirmation");
+        auto admitted=sample(3);Check(admitted.validity.position && admitted.linear_velocity.has_value(),"known space did not recover");
+        auto restart=sample(0,202);
+        Check(restart.session_id!=admitted.session_id && restart.coordinate_space.revision==admitted.coordinate_space.revision,
+              "sender restart changed source-space revision");
+        Check(restart.validity.position==!enabled,"sender restart retained admission state");
+        Check(sample(1,202).validity.position,"sender restart failed to reacquire");
+        r.spaceKnown=false;++r.revision;
+        auto revoked=sample(2,202);Check(!revoked.validity.position && revoked.coordinate_space.revision==11,
+                                        "space invalidation did not revoke admitted pose");
+        r.spaceKnown=true;
+        Check(sample(3,202).validity.position==!enabled,"space recovery inherited prior confirmation");
+        Check(sample(4,202).validity.position,"space recovery failed to admit");
+    }
+}
 int main() {
-    try { MappingAndStreams(); SessionAndWrap(); ResyncAndStale(); CountsAndBind(); PublisherAndLegacy(); Identity(); AdmissionBoundary(); AdmissionPacketBurst(); }
+    try { MappingAndStreams(); SessionAndWrap(); ResyncAndStale(); CountsAndBind(); PublisherAndLegacy(); Identity(); AdmissionBoundary(); AdmissionPacketBurst(); AdmissionSourceSpaceAuthority(); }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
     std::cout << "PASS observation mapping, streams, resync/age, wrap/session, bounded cache, single bind, UDP/legacy, persistent identity\n";
 }

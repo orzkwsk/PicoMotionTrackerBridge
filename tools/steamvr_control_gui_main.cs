@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Windows;
 
 namespace PicoOTBridge
@@ -18,9 +19,20 @@ namespace PicoOTBridge
                     return 0;
                 }
 
-                using (var tray = new SteamVrControlTray(repoRoot))
+                bool created;
+                using (var single = new Mutex(true,@"Local\PicoOTBridge_ServiceTray",out created))
                 {
-                    tray.Run();
+                    bool owned=created;
+                    if(!owned)try{owned=single.WaitOne(0);}catch(AbandonedMutexException){owned=true;}
+                    if(!owned) {
+                        PcServiceLifecycle.Control.VerifyExistingTray(@"Local\PicoOTBridge_ServiceLifecycle",Option(args,"--service-exe"),System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
+                        if(!HasSwitch(args,"--tray-only"))using(var request=EventWaitHandle.OpenExisting(@"Local\PicoOTBridge_OpenControl"))request.Set();
+                        return 0;
+                    }
+                    try {
+                        using (var tray = new SteamVrControlTray(repoRoot, Option(args,"--service-exe"), !HasSwitch(args,"--tray-only")))
+                            tray.Run();
+                    } finally {single.ReleaseMutex();}
                 }
                 return 0;
             }
@@ -33,6 +45,11 @@ namespace PicoOTBridge
                     MessageBoxImage.Error);
                 return 1;
             }
+        }
+
+        private static string Option(string[] args,string name) {
+            for(int i=0;i+1<args.Length;++i)if(string.Equals(args[i],name,StringComparison.OrdinalIgnoreCase))return Path.GetFullPath(args[i+1]);
+            throw new ArgumentException("Missing "+name+"; launch through the reviewed startup script");
         }
 
         private static bool HasSwitch(string[] args, string value)
