@@ -36,6 +36,11 @@ instrumented in this phase.
   cannot count as first poses. A 1-second absence of accepted pose/device state
   is `source_observation_timeout`, explicitly not an authoritative transport
   disconnect. Pose freshness expires at the existing receiver timeout independently.
+  The service samples the idle diagnostic clock after Receiver Pump. A caller's
+  clock older than the latest accepted receipt is an unusable observation:
+  Poll leaves diagnostic state unchanged instead of reporting timeout or
+  synthesizing freshness. A subsequent usable clock still detects actual
+  expiration, reconnect and sender-session boundaries.
 - Tracker registration is receiver-cache membership. Enumeration snapshots do
   not prove live physical presence or a complete inventory, so `inventory_complete`
   remains false. Old cache registration is retired on session/source boundaries.
@@ -78,6 +83,13 @@ runtime identity, independent validity changes, intra-Pump transitions, stale po
 fatal/unknown event preservation, timestamps, and terminal summary. The blocked
 writer test proves reserved fatal capacity and fail-closed critical overflow;
 the failing writer test proves sink failure handling.
+
+The deferred-loop-clock regression sends 32 real synthetic UDP packets through
+Publisher and Receiver, then repeats an earlier pre-Pump clock after each packet
+callback. It checks no false session/registration/first-pose edges and unchanged
+receiver samples, exact 500ms pose and 1s session boundaries, a real source timeout,
+same-token reconnect, and zero diagnostic drops. This is offline software
+evidence; physical transport reliability remains unverified by this test.
 
 An initial synthetic peak-load sample (not hardware validation) measured:
 

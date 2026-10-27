@@ -578,7 +578,9 @@ int main(int argc, char** argv) {
         } else {
             receiverErrorLogged = false;
         }
-        diagnostic.Poll(receiver,nowNs);
+        // Pump's packet callbacks may have observed receipts newer than the
+        // loop's route-poll timestamp. Observe the updated cache with a new time.
+        diagnostic.Poll(receiver,pico_ot::bridge::MonotonicNowNs());
 
         PumpSinkControl(steamVr);
         PumpSinkControl(monaka);

@@ -136,6 +136,10 @@ void RuntimeDiagnostic::Poll(const bridge::Receiver& receiver,int64_t nowNs) noe
         auto sender=receiver.ActiveSenderSessionId();
         int64_t latest=0;
         for(auto& serial:receiver.Serials()) { auto* p=receiver.Find(serial); if(p) latest=(std::max)(latest,(std::max)(p->lastPoseReceivePcNs,p->lastDeviceReceivePcNs)); }
+        // A caller can retain a loop timestamp from before Pump admitted this
+        // cache. That older observation cannot prove either freshness or a
+        // timeout. Leave diagnostic state intact until a usable clock arrives.
+        if(nowNs<latest)return;
         bool live=sender!=0 && latest>0 && nowNs>=latest && nowNs-latest<=1'000'000'000LL;
         if (sender!=sender_ || (live&&!connected_)) {
             if(sender_&&connected_) { state_="disconnected"; Event("session_disconnected",{{"reason","sender_session_changed"}}); Retire("session_boundary"); }
