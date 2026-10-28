@@ -64,7 +64,7 @@ namespace PicoOTBridge
                     "PicoMotionTrackerBridge");
                 configPath = Path.Combine(configDirectory, "steamvr_alignment.json");
 
-                Title = "PICO OT SteamVR Control";
+                Title = "OT Tracker Receiver";
                 Width = 740;
                 Height = 700;
                 MinWidth = 700;

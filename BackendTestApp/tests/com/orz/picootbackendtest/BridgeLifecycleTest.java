@@ -198,6 +198,22 @@ public final class BridgeLifecycleTest {
         invalidSavedSetting();
         transientRestoreFailure();
         transientManualFailure();
-        System.out.println("BridgeLifecycle: 10 tests PASS (A-G, invalid saved config, transient failures)");
+        explicitPublisherRestart();
+        System.out.println("BridgeLifecycle: 11 tests PASS (original 10 saved-intent cases plus explicit restart)");
+    }
+
+    private static void explicitPublisherRestart() {
+        Fixture f = new Fixture();
+        BridgeLifecycle lifecycle = f.create();
+        lifecycle.start(A);
+        int stopsBefore = f.publisher.stops;
+        lifecycle.restart(A);
+        check(f.publisher.starts == 2 && f.publisher.stops == stopsBefore + 1 && f.publisher.running,
+            "explicit restart stops and starts once");
+        check(f.settings.ip.equals(A) && f.settings.enabled, "restart saves successful endpoint");
+        f.publisher.failSocket = true;
+        lifecycle.restart(B);
+        check(lifecycle.state() == BridgeLifecycle.State.ERROR && !f.publisher.running && f.settings.ip.equals(A),
+            "failed explicit restart preserves prior saved intent");
     }
 }

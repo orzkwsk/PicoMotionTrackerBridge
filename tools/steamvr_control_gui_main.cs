@@ -40,7 +40,7 @@ namespace PicoOTBridge
             {
                 MessageBox.Show(
                     ex.ToString(),
-                    "PICO OT SteamVR Control",
+                    "OT Tracker Receiver",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
                 return 1;

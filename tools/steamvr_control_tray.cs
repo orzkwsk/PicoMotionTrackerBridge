@@ -78,7 +78,7 @@ namespace PicoOTBridge
             steamVrItem = new Forms.ToolStripMenuItem("SteamVR");
             monakaItem = new Forms.ToolStripMenuItem("MonakaVR");
             bothItem = new Forms.ToolStripMenuItem("Both");
-            disabledItem = new Forms.ToolStripMenuItem("Disabled");
+            disabledItem = new Forms.ToolStripMenuItem("Disable legacy output (receiver stays running)");
             steamVrItem.Click += delegate { SetRoute(OutputRoute.SteamVr); };
             monakaItem.Click += delegate { SetRoute(OutputRoute.Monaka); };
             bothItem.Click += delegate { SetRoute(OutputRoute.Both); };
@@ -91,9 +91,9 @@ namespace PicoOTBridge
             menu.Items.Add(routeMenu);
 
             menu.Items.Add(new Forms.ToolStripSeparator());
-            menu.Items.Add("Open SteamVR Control...", null, delegate { OpenControlWindow(); });
+            menu.Items.Add("Open OT Tracker Receiver...", null, delegate { OpenControlWindow(); });
             menu.Items.Add(new Forms.ToolStripSeparator());
-            exitItem=new Forms.ToolStripMenuItem("Exit");
+            exitItem=new Forms.ToolStripMenuItem("Exit (stop owned receiver)");
             exitItem.Click+=delegate { Exit(); };
             menu.Items.Add(exitItem);
 
@@ -103,7 +103,7 @@ namespace PicoOTBridge
             notifyIcon = new Forms.NotifyIcon
             {
                 Icon = trayIcon,
-                Text = "PICO Motion Tracker Bridge",
+                Text = "OT Tracker Receiver",
                 ContextMenuStrip = menu,
                 Visible = true
             };
@@ -146,7 +146,7 @@ namespace PicoOTBridge
                 try {serviceControl.EnsureRunning("");}catch(Exception e){error=e.Message;}
                 try {dispatcher.BeginInvoke((Action)delegate {
                     lifecycleIssue=error;RefreshRouteUi();
-                    if(error!=null)notifyIcon.ShowBalloonTip(5000,"PICO Receiver",error,Forms.ToolTipIcon.Error);
+                    if(error!=null)notifyIcon.ShowBalloonTip(5000,"OT Tracker Receiver",error,Forms.ToolTipIcon.Error);
                     else if(showWindow)OpenControlWindow();
                 });}catch(InvalidOperationException){}
             });
@@ -221,7 +221,7 @@ namespace PicoOTBridge
                     : RouteName(route) + " saved; it will be applied when the PC Bridge Service starts.";
                 notifyIcon.ShowBalloonTip(
                     2500,
-                    "PICO Motion Tracker Bridge",
+                    "OT Tracker Receiver",
                     detail,
                     Forms.ToolTipIcon.Info);
             }
@@ -291,6 +291,13 @@ namespace PicoOTBridge
                     {
                         return false;
                     }
+                    // Native MonotonicNowNs and Stopwatch share Windows QPC.
+                    long ticks = Stopwatch.GetTimestamp();
+                    long frequency = Stopwatch.Frequency;
+                    long nowNs = (ticks / frequency) * 1000000000L +
+                        (long)((decimal)(ticks % frequency) * 1000000000m / frequency);
+                    if (!ReceiverStatusDisplay.IsFreshHeartbeat(nowNs, view.ReadInt64(32)))
+                        return false;
                     route = (OutputRoute)routeRaw;
                     trackerCount = view.ReadUInt32(20);
                     return true;
@@ -304,7 +311,7 @@ namespace PicoOTBridge
 
         private void RefreshRouteUi()
         {
-            if(exitPending) {statusItem.Text="Stopping PICO Receiver; tray retained until exit confirmed";return;}
+            if(exitPending) {statusItem.Text="Stopping OT Tracker Receiver; tray retained until exit confirmed";return;}
             if(lifecycleIssue!=null) {statusItem.Text="Receiver control: "+lifecycleIssue;return;}
             OutputRoute requested = LoadRequestedRoute();
             steamVrItem.Checked = requested == OutputRoute.SteamVr;
@@ -319,7 +326,7 @@ namespace PicoOTBridge
                 if (applied == requested)
                 {
                     statusItem.Text = "Output: " + RouteName(applied) +
-                                      " | " + trackerCount.ToString() + " tracker(s)";
+                                      " | " + ReceiverStatusDisplay.CachedTrackers(trackerCount);
                 }
                 else
                 {
@@ -329,7 +336,7 @@ namespace PicoOTBridge
             }
             else
             {
-                statusItem.Text = "Bridge Service: offline | requested: " + RouteName(requested);
+                statusItem.Text = "Receiver status unavailable or stale | requested: " + RouteName(requested);
             }
         }
 
@@ -342,8 +349,8 @@ namespace PicoOTBridge
                 {
                     notifyIcon.ShowBalloonTip(
                         1500,
-                        "PICO Motion Tracker Bridge",
-                        "SteamVR Control is already open.",
+                        "OT Tracker Receiver",
+                        "OT Tracker Receiver is already open.",
                         Forms.ToolTipIcon.Info);
                     return;
                 }
@@ -361,7 +368,7 @@ namespace PicoOTBridge
             {
                 Forms.MessageBox.Show(
                     ex.Message,
-                    "SteamVR Control launch failed",
+                    "OT Tracker Receiver launch failed",
                     Forms.MessageBoxButtons.OK,
                     Forms.MessageBoxIcon.Error);
             }
@@ -392,7 +399,7 @@ namespace PicoOTBridge
         }
         private void ExitFailed(string error) {
             exitPending=false;exitItem.Enabled=true;lifecycleIssue=error;RefreshRouteUi();
-            notifyIcon.ShowBalloonTip(5000,"PICO Receiver stop failed",error,Forms.ToolTipIcon.Error);
+            notifyIcon.ShowBalloonTip(5000,"OT Tracker Receiver stop failed",error,Forms.ToolTipIcon.Error);
         }
 
         public void Dispose()
