@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Text;
 using System.Threading;
+using System.Runtime.InteropServices;
 using Forms = System.Windows.Forms;
 
 namespace PicoOTBridge
@@ -347,11 +348,10 @@ namespace PicoOTBridge
             {
                 if (controlProcess != null && !controlProcess.HasExited)
                 {
-                    notifyIcon.ShowBalloonTip(
-                        1500,
-                        "OT Tracker Receiver",
-                        "OT Tracker Receiver is already open.",
-                        Forms.ToolTipIcon.Info);
+                    if (!OwnedControlWindow.TryActivate(controlProcess))
+                        notifyIcon.ShowBalloonTip(1500, "OT Tracker Receiver",
+                            "Receiver Control could not be brought forward. Select its window from the taskbar.",
+                            Forms.ToolTipIcon.Info);
                     return;
                 }
 
@@ -426,4 +426,24 @@ namespace PicoOTBridge
             }
         }
     }
+ internal static class OwnedControlWindow {
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window,out uint processId);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr window);
+  [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr window,int command);
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+  static bool Matches(Process retainedProcess,IntPtr window){
+   uint id;return !retainedProcess.HasExited&&GetWindowThreadProcessId(window,out id)!=0&&id==(uint)retainedProcess.Id;
+  }
+  internal static bool TryActivate(Process retainedProcess){
+   if(retainedProcess==null)return false;
+   try{
+    if(retainedProcess.HasExited)return false;
+    retainedProcess.Refresh();var window=retainedProcess.MainWindowHandle;
+    if(window==IntPtr.Zero||!Matches(retainedProcess,window))return false;
+    if(IsIconic(window)&&Matches(retainedProcess,window))ShowWindowAsync(window,9);
+    return Matches(retainedProcess,window)&&SetForegroundWindow(window);
+   }catch(InvalidOperationException){return false;}
+    catch(System.ComponentModel.Win32Exception){return false;}
+  }
+ }
 }
