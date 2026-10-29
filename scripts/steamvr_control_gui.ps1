@@ -13,6 +13,7 @@ $GuiTraySource = Join-Path $RepoRoot "tools\steamvr_control_tray.cs"
 $GuiMainSource = Join-Path $RepoRoot "tools\steamvr_control_gui_main.cs"
 $GuiIconSource = Join-Path $RepoRoot "tools\app_icon.cs"
 $LifecycleSource = Join-Path $RepoRoot "tools\service_lifecycle_control.cs"
+$IsolationSource = Join-Path $RepoRoot "tools\receiver_isolation_profile.cs"
 $StatusSource = Join-Path $RepoRoot "tools\receiver_status_display.cs"
 $BlackIcon = Join-Path $RepoRoot "assets\icons\pico-tray-black.ico"
 $WhiteIcon = Join-Path $RepoRoot "assets\icons\pico-tray-white.ico"
@@ -23,7 +24,7 @@ $BuildDir = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 }
 $GuiExe = Join-Path $BuildDir "pico_ot_steamvr_control.exe"
 
-foreach ($path in @($GuiSource, $GuiTraySource, $GuiMainSource, $GuiIconSource, $LifecycleSource, $StatusSource, $BlackIcon, $WhiteIcon)) {
+foreach ($path in @($GuiSource, $GuiTraySource, $GuiMainSource, $GuiIconSource, $LifecycleSource, $IsolationSource, $StatusSource, $BlackIcon, $WhiteIcon)) {
     if (-not (Test-Path $path)) {
         throw "SteamVR control GUI source was not found: $path"
     }
@@ -131,7 +132,7 @@ $WpfRefs = Get-WpfReferenceSet
 $needsBuild = -not (Test-Path $GuiExe)
 if (-not $needsBuild) {
     $exeTime = (Get-Item $GuiExe).LastWriteTimeUtc
-    foreach ($source in @($GuiSource, $GuiTraySource, $GuiMainSource, $GuiIconSource, $LifecycleSource, $StatusSource, $BlackIcon, $WhiteIcon, $PSCommandPath)) {
+    foreach ($source in @($GuiSource, $GuiTraySource, $GuiMainSource, $GuiIconSource, $LifecycleSource, $IsolationSource, $StatusSource, $BlackIcon, $WhiteIcon, $PSCommandPath)) {
         if ((Get-Item $source).LastWriteTimeUtc -gt $exeTime) {
             $needsBuild = $true
             break
@@ -154,6 +155,7 @@ if ($needsBuild) {
         "/resource:$WhiteIcon,PicoOTBridge.Icons.White",
         "/reference:System.dll",
         "/reference:System.Core.dll",
+        "/reference:System.Web.Extensions.dll",
         "/reference:System.Drawing.dll",
         "/reference:System.Windows.Forms.dll",
         "/reference:$($WpfRefs.WindowsBase)",
@@ -165,6 +167,7 @@ if ($needsBuild) {
         $GuiMainSource,
         $GuiIconSource,
         $LifecycleSource,
+        $IsolationSource,
         $StatusSource
     )
 

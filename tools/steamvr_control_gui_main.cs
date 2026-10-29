@@ -12,32 +12,39 @@ namespace PicoOTBridge
         {
             try
             {
+                using (var isolation = ReceiverIsolationProfile.Parse(args)) {
                 string repoRoot = ResolveRepoRoot(args);
                 if (HasSwitch(args, "--control-window-only"))
                 {
-                    SteamVrControlWpf.Run(repoRoot);
+                    if(isolation!=null) SteamVrControlWpf.RunIsolated(isolation, RawOption(args,"--test-owner"));
+                    else SteamVrControlWpf.Run(repoRoot);
                     return 0;
                 }
 
+                if(isolation!=null)isolation.ClaimTray();
                 bool created;
-                using (var single = new Mutex(true,@"Local\PicoOTBridge_ServiceTray",out created))
+                using (var single = new Mutex(true,isolation==null?@"Local\PicoOTBridge_ServiceTray":isolation.Name("Tray"),out created))
                 {
+                    if(isolation!=null&&!created)throw new IOException("Isolated tray mutex collision");
                     bool owned=created;
                     if(!owned)try{owned=single.WaitOne(0);}catch(AbandonedMutexException){owned=true;}
                     if(!owned) {
+                        if(isolation!=null)throw new IOException("Isolated tray resource already exists");
                         PcServiceLifecycle.Control.VerifyExistingTray(@"Local\PicoOTBridge_ServiceLifecycle",Option(args,"--service-exe"),System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
                         if(!HasSwitch(args,"--tray-only"))using(var request=EventWaitHandle.OpenExisting(@"Local\PicoOTBridge_OpenControl"))request.Set();
                         return 0;
                     }
                     try {
-                        using (var tray = new SteamVrControlTray(repoRoot, Option(args,"--service-exe"), !HasSwitch(args,"--tray-only")))
+                        using (var tray = new SteamVrControlTray(repoRoot, Option(args,"--service-exe"), !HasSwitch(args,"--tray-only"),isolation))
                             tray.Run();
                     } finally {single.ReleaseMutex();}
                 }
                 return 0;
+                }
             }
             catch (Exception ex)
             {
+                if(ReceiverIsolationProfile.IsRequested(args)) {Console.Error.WriteLine(ex.ToString());return 1;}
                 MessageBox.Show(
                     ex.ToString(),
                     "OT Tracker Receiver",
@@ -45,6 +52,11 @@ namespace PicoOTBridge
                     MessageBoxImage.Error);
                 return 1;
             }
+        }
+
+        private static string RawOption(string[] args,string name) {
+            for(int i=0;i+1<args.Length;++i)if(args[i]==name)return args[i+1];
+            throw new ArgumentException("Missing "+name);
         }
 
         private static string Option(string[] args,string name) {

@@ -21,6 +21,7 @@ struct ReceiverConfig {
     uint64_t clientSessionId = 0;
     // Enabled by the single PC HMD ingress owner. Legacy consumers retain defaults.
     bool exclusiveBind = false;
+    bool loopbackOnly = false; // Internal test route; existing C ABI/default unchanged.
     bool rejectRetiredSessions = false;
     size_t maxRetiredSessions = 1024;
     size_t maxTrackers = 256;

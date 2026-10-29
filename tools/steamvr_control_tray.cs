@@ -24,6 +24,9 @@ namespace PicoOTBridge
         private const string DisabledValue = "disabled";
 
         private readonly string repoRoot;
+        private readonly ReceiverIsolationProfile isolation;
+        private string StatusMapping {get{return isolation==null?ServiceStatusMappingName:isolation.Name("Status");}}
+        private string RouteEvent {get{return isolation==null?OutputRouteUpdatedEventName:isolation.Name("RouteUpdated");}}
         private readonly string configDirectory;
         private readonly string routePath;
         private readonly Forms.ApplicationContext context;
@@ -55,17 +58,20 @@ namespace PicoOTBridge
             Disabled = 3
         }
 
-        public SteamVrControlTray(string repoRoot, string serviceExecutable, bool openWindow)
+        public SteamVrControlTray(string repoRoot, string serviceExecutable, bool openWindow, ReceiverIsolationProfile isolation = null)
         {
+            this.isolation=isolation;
             this.repoRoot = repoRoot;
             showWindow=openWindow;
             dispatcher.CreateControl();
-            serviceControl=new PcServiceLifecycle.Control(@"Local\PicoOTBridge_ServiceLifecycle",serviceExecutable,
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"PicoMotionTrackerBridge","service-logs"));
-            openControlRequest=new EventWaitHandle(false,EventResetMode.AutoReset,@"Local\PicoOTBridge_OpenControl");
-            configDirectory = Path.Combine(
+            serviceControl=new PcServiceLifecycle.Control(isolation==null?@"Local\PicoOTBridge_ServiceLifecycle":isolation.Name("Lifecycle"),serviceExecutable,
+                isolation==null?Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"PicoMotionTrackerBridge","service-logs"):Path.Combine(isolation.Root,"service-logs"),isolation!=null);
+            bool eventCreated;
+            openControlRequest=new EventWaitHandle(false,EventResetMode.AutoReset,isolation==null?@"Local\PicoOTBridge_OpenControl":isolation.Name("OpenControl"),out eventCreated);
+            if(isolation!=null&&!eventCreated)throw new IOException("Isolated OpenControl resource already exists");
+            configDirectory = isolation==null?Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PicoMotionTrackerBridge");
+                "PicoMotionTrackerBridge"):isolation.Root;
             routePath = Path.Combine(configDirectory, "output_route.txt");
 
             context = new Forms.ApplicationContext();
@@ -144,7 +150,7 @@ namespace PicoOTBridge
         {
             ThreadPool.QueueUserWorkItem(delegate {
                 string error=null;
-                try {serviceControl.EnsureRunning("");}catch(Exception e){error=e.Message;}
+                try {serviceControl.EnsureRunning(isolation==null?"":isolation.Arguments);}catch(Exception e){error=e.Message;}
                 try {dispatcher.BeginInvoke((Action)delegate {
                     lifecycleIssue=error;RefreshRouteUi();
                     if(error!=null)notifyIcon.ShowBalloonTip(5000,"OT Tracker Receiver",error,Forms.ToolTipIcon.Error);
@@ -156,6 +162,14 @@ namespace PicoOTBridge
 
         private OutputRoute LoadRequestedRoute()
         {
+            if(isolation!=null) {
+                string value=File.ReadAllText(routePath,Encoding.UTF8).Trim();
+                if(value=="both")return OutputRoute.Both;
+                if(value=="disabled")return OutputRoute.Disabled;
+                if(value=="monaka")return OutputRoute.Monaka;
+                if(value=="steamvr")return OutputRoute.SteamVr;
+                throw new IOException("Isolated route invalid");
+            }
             try
             {
                 if (!File.Exists(routePath))
@@ -255,7 +269,7 @@ namespace PicoOTBridge
         {
             try
             {
-                using (var evt = EventWaitHandle.OpenExisting(OutputRouteUpdatedEventName))
+                using (var evt = EventWaitHandle.OpenExisting(RouteEvent))
                 {
                     return evt.Set();
                 }
@@ -273,7 +287,7 @@ namespace PicoOTBridge
             try
             {
                 using (var mapping = MemoryMappedFile.OpenExisting(
-                    ServiceStatusMappingName,
+                    StatusMapping,
                     MemoryMappedFileRights.Read))
                 using (var view = mapping.CreateViewAccessor(
                     0,
@@ -359,8 +373,8 @@ namespace PicoOTBridge
                 var psi = new ProcessStartInfo
                 {
                     FileName = executable,
-                    Arguments = Quote(repoRoot) + " --control-window-only",
-                    UseShellExecute = true
+                    Arguments = Quote(repoRoot) + " --control-window-only" + (isolation==null?"":isolation.Arguments+" --test-owner "+isolation.CurrentTrayIdentity),
+                    UseShellExecute = isolation==null
                 };
                 controlProcess = Process.Start(psi);
             }

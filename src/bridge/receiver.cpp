@@ -33,7 +33,7 @@ bool Receiver::Start(const ReceiverConfig& config, std::string* error) {
         return false;
     }
 
-    if (!socket_.Open(config.listenPort, true, error, config.exclusiveBind)) {
+    if (!socket_.Open(config.listenPort, true, error, config.exclusiveBind, config.loopbackOnly)) {
         return false;
     }
 

@@ -22,6 +22,32 @@ namespace PicoOTBridge
             application.Run(window);
         }
 
+        internal static void RunIsolated(ReceiverIsolationProfile profile, string ownerIdentity)
+        {
+            // Never construct ControlWindow: every legacy calibration/zero path is unreachable.
+            using(var owner=profile.ValidateTray(ownerIdentity)) {
+                var application=new Application();
+                var status=new TextBlock { Text="ISOLATED FAKE INPUT — no PICO hardware or SteamVR.\nCalibration and zero controls are unavailable.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(16) };
+                var panel=new StackPanel();panel.Children.Add(status);
+                var refresh=new Button {Content="Refresh isolated receiver status",Margin=new Thickness(16)};
+                refresh.Click+=delegate {
+                    try {
+                        profile.ValidateOwner();
+                        using(var map=MemoryMappedFile.OpenExisting(profile.Name("Status"),MemoryMappedFileRights.Read))
+                        using(var view=map.CreateViewAccessor(0,40,MemoryMappedFileAccess.Read)) {
+                            if(view.ReadUInt32(0)!=0x53544250||view.ReadUInt32(4)!=1)throw new IOException("Isolated status ABI mismatch");
+                            status.Text="ISOLATED FAKE INPUT | instance "+profile.Id+" | cached trackers: "+view.ReadUInt32(20)+"\nThis is software receiver evidence only.";
+                        }
+                    } catch(Exception error) { status.Text="Isolated receiver unavailable: "+error.Message; }
+                };
+                panel.Children.Add(refresh);
+                var window=new Window {Title="PICO Receiver — ISOLATED FAKE INPUT",Width=600,Height=300,Content=panel};
+                var timer=new DispatcherTimer {Interval=TimeSpan.FromMilliseconds(250)};
+                timer.Tick+=delegate {try {if(owner.HasExited)application.Shutdown();profile.ValidateOwner();}catch{application.Shutdown();}};
+                timer.Start();application.Run(window);timer.Stop();
+            }
+        }
+
         private sealed class AlignmentState
         {
             public ulong Generation;

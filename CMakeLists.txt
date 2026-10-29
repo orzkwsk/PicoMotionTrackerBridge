@@ -150,11 +150,20 @@ if(NOT ANDROID)
     endif()
 
     if(WIN32)
+        if(PICO_OT_BUILD_TESTS)
+            add_executable(pico_isolation_profile_tests tests/isolation_profile_tests.cpp)
+            target_link_libraries(pico_isolation_profile_tests PRIVATE pico_observation_provider iphlpapi)
+            add_test(NAME pico_isolation_profile COMMAND pico_isolation_profile_tests "${CMAKE_BINARY_DIR}/isolation-profile-tests")
+            add_executable(pico_isolated_packet_sender tests/isolated_packet_sender.cpp)
+            target_link_libraries(pico_isolated_packet_sender PRIVATE pico_observation_provider iphlpapi)
+            add_executable(pico_isolated_common_consumer tests/isolated_common_consumer.cpp)
+            target_link_libraries(pico_isolated_common_consumer PRIVATE MonakaProtocol::Codec)
+        endif()
         add_executable(pico_ot_bridge_service
             tools/pc_bridge_service.cpp)
         target_compile_features(pico_ot_bridge_service PRIVATE cxx_std_17)
         target_link_libraries(pico_ot_bridge_service PRIVATE
-            PicoOT::BridgePublisher PicoOT::BridgeTransport pico_observation_provider pico_runtime_diagnostic)
+            PicoOT::BridgePublisher PicoOT::BridgeTransport pico_observation_provider pico_runtime_diagnostic iphlpapi)
         add_custom_command(TARGET pico_ot_bridge_service POST_BUILD
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/diagnostic_provenance.py"
             --output "${CMAKE_BINARY_DIR}/diagnostic-generated" --binary "$<TARGET_FILE:pico_ot_bridge_service>")

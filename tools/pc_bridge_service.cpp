@@ -13,8 +13,10 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#include <winsock2.h>
 #include <Windows.h>
 #include "pico_ot_bridge/service_lifecycle.hpp"
+#include "pico_ot_bridge/isolated_resources.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -40,6 +42,7 @@ using pico_ot::bridge::ReceiverConfig;
 using pico_ot::bridge::ServiceOutputRoute;
 
 std::atomic<bool> gRun{true};
+const pico_ot::bridge::IsolationProfile* gIsolation=nullptr;
 
 BOOL WINAPI ConsoleHandler(DWORD type) {
     switch (type) {
@@ -104,6 +107,7 @@ std::string TrimLower(std::string value) {
 }
 
 std::string RouteConfigPath() {
+    if(gIsolation)return (gIsolation->root/L"output_route.txt").u8string();
     char localAppData[32768]{};
     const DWORD length = GetEnvironmentVariableA(
         "LOCALAPPDATA",
@@ -127,6 +131,7 @@ ServiceOutputRoute LoadRouteFromDisk() {
 
     std::ifstream input(path);
     if (!input) {
+        if(gIsolation)throw std::runtime_error("isolated route unavailable");
         return ServiceOutputRoute::SteamVr;
     }
 
@@ -145,6 +150,7 @@ ServiceOutputRoute LoadRouteFromDisk() {
     if (value == pico_ot::bridge::kRouteDisabledValue || value == "off") {
         return ServiceOutputRoute::Disabled;
     }
+    if(gIsolation && value!="steamvr")throw std::runtime_error("isolated route invalid");
     return ServiceOutputRoute::SteamVr;
 }
 
@@ -234,6 +240,7 @@ bool StartSink(OutputSink& sink) {
     PublisherConfig config;
     config.pcEndpoint = {"127.0.0.1", sink.port};
     config.localPort = 0;
+    config.loopbackOnly = gIsolation!=nullptr;
 
     std::string error;
     if (!sink.publisher.Start(config, &error)) {
@@ -253,6 +260,7 @@ void PumpSinkControl(OutputSink& sink) {
         sink.errorLogged = false;
         return;
     }
+    if(gIsolation)throw std::runtime_error("isolated sink control failed: "+error);
     if (!sink.errorLogged) {
         std::cerr << sink.name << " control error: " << error << '\n';
         sink.errorLogged = true;
@@ -288,6 +296,7 @@ void ForwardLatest(Receiver& receiver, OutputSink& sink, bool enabled) {
                     sink.progress.poseSequence[serial] = received->lastPoseSequence;
                     sink.errorLogged = false;
                 } else if (!sink.errorLogged) {
+                    if(gIsolation)throw std::runtime_error("isolated pose forward failed: "+error);
                     std::cerr << sink.name << " pose forward failed: " << error << '\n';
                     sink.errorLogged = true;
                 }
@@ -305,6 +314,7 @@ void ForwardLatest(Receiver& receiver, OutputSink& sink, bool enabled) {
                     sink.progress.deviceSequence[serial] = received->lastDeviceSequence;
                     sink.errorLogged = false;
                 } else if (!sink.errorLogged) {
+                    if(gIsolation)throw std::runtime_error("isolated state forward failed: "+error);
                     std::cerr << sink.name << " device-state forward failed: " << error << '\n';
                     sink.errorLogged = true;
                 }
@@ -313,14 +323,15 @@ void ForwardLatest(Receiver& receiver, OutputSink& sink, bool enabled) {
     }
 }
 
-bool OpenStatusMapping(StatusMapping& status) {
+bool OpenStatusMapping(StatusMapping& status, const std::wstring& name, bool exclusive) {
     status.mapping = CreateFileMappingW(
         INVALID_HANDLE_VALUE,
         nullptr,
         PAGE_READWRITE,
         0,
         static_cast<DWORD>(sizeof(BridgeServiceStatusSharedState)),
-        pico_ot::bridge::kBridgeServiceStatusMappingName);
+        name.c_str());
+    if(exclusive && status.mapping && GetLastError()==ERROR_ALREADY_EXISTS)throw std::runtime_error("isolated status mapping collision");
     if (status.mapping == nullptr) {
         std::cerr << "Failed to create service status mapping: " << GetLastError() << '\n';
         return false;
@@ -362,10 +373,20 @@ void PublishStatus(StatusMapping& status,
 
 }  // namespace
 
-int main(int argc, char** argv) {
-    const std::wstring lifecycleName = L"Local\\PicoOTBridge_ServiceLifecycle";
-    if (argc == 2 && std::string(argv[1]) == "--stop")
+int RunService(int argc, char** argv) {
+    std::unique_ptr<pico_ot::bridge::IsolationProfile> isolation;
+    for(int i=1;i<argc;++i) {
+        const std::string arg=argv[i];
+        if(arg.rfind("--isolat",0)!=0)continue;
+        if(arg!="--isolated-profile" || isolation || i+1>=argc || std::string(argv[i+1]).rfind("--",0)==0)throw std::runtime_error("complete isolated profile required");
+        isolation=std::make_unique<pico_ot::bridge::IsolationProfile>(pico_ot::bridge::IsolationProfile::Load(std::filesystem::u8path(argv[++i])));
+        isolation->ValidateOwner();
+    }
+    gIsolation=isolation.get();
+    const std::wstring lifecycleName = isolation?isolation->Name(L"Lifecycle"):L"Local\\PicoOTBridge_ServiceLifecycle";
+    if (!isolation && argc == 2 && std::string(argv[1]) == "--stop")
         return pc_service_lifecycle::StopAndWait(lifecycleName, 5000);
+    bool stop=false;
     uint16_t observationPort = 29810;
     std::filesystem::path identityPath;
     std::string diagnosticPath;
@@ -375,6 +396,9 @@ int main(int argc, char** argv) {
     try {
         for (int i=1;i<argc;++i) {
             const std::string option=argv[i];
+            if(option=="--isolated-profile") {++i;continue;}
+            if(option=="--stop" && isolation) {stop=true;continue;}
+            if(isolation && (option=="--observation-port"||option=="--observation-config"||option=="--diagnostic-jsonl"))throw std::runtime_error("isolated profile cannot be partially overridden");
             if (option=="--version") {
                 const auto build=pico_ot::RuntimeDiagnostic::Build();
                 if(i+1<argc && std::string(argv[i+1])=="--json") std::cout << build.dump() << '\n';
@@ -407,10 +431,18 @@ int main(int argc, char** argv) {
         std::cerr << "Start through the PICO Receiver tray. A process-lifetime owner is required.\n";
         return 1;
     }
+    pc_service_lifecycle::Handle serviceClaim;
+    if(isolation) {
+        isolation->ValidateTray(trayOwner,trayOwnerCreated);
+        if(stop)return pc_service_lifecycle::StopAndWait(lifecycleName,5000,trayOwner,trayOwnerCreated);
+        serviceClaim.value=CreateFileW((isolation->root/L"service.claim").c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+        if(serviceClaim.value==INVALID_HANDLE_VALUE) {serviceClaim.value=nullptr;throw std::runtime_error("isolated service root already consumed");}
+        observationPort=isolation->observation;identityPath=isolation->root/L"observation-provider.conf";diagnosticPath=(isolation->root/L"diagnostic.jsonl").u8string();
+    }
     HANDLE instanceMutex = CreateMutexW(
         nullptr,
         TRUE,
-        pico_ot::bridge::kBridgeServiceInstanceMutexName);
+        isolation?isolation->Name(L"Instance").c_str():pico_ot::bridge::kBridgeServiceInstanceMutexName);
     if (instanceMutex == nullptr) {
         std::cerr << "Failed to create service instance mutex: " << GetLastError() << '\n';
         return 2;
@@ -418,26 +450,29 @@ int main(int argc, char** argv) {
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         std::cout << "PICO OT Bridge Service is already running.\n";
         CloseHandle(instanceMutex);
-        return 0;
+        return isolation?7:0;
     }
 
     SetConsoleCtrlHandler(ConsoleHandler, TRUE);
     std::unique_ptr<pc_service_lifecycle::Endpoint> lifecycle;
     try {
-        lifecycle = std::make_unique<pc_service_lifecycle::Endpoint>(lifecycleName, trayOwner, trayOwnerCreated);
+        lifecycle = std::make_unique<pc_service_lifecycle::Endpoint>(lifecycleName, trayOwner, trayOwnerCreated, isolation!=nullptr);
     } catch (const std::exception& e) {
         std::cerr << "Service lifetime control unavailable: " << e.what() << '\n';
         ReleaseMutex(instanceMutex); CloseHandle(instanceMutex); return 6;
     }
     pico_ot::RuntimeDiagnostic diagnostic;
-    if(!diagnosticPath.empty() && !diagnostic.Start(diagnosticPath))
+    if(!diagnosticPath.empty() && !diagnostic.Start(diagnosticPath)) {
+        if(isolation)throw std::runtime_error("isolated diagnostics unavailable");
         std::cerr << "Diagnostic output unavailable; production service continues.\n";
+    }
 
     HANDLE routeUpdatedEvent = CreateEventW(
         nullptr,
         FALSE,
         FALSE,
-        pico_ot::bridge::kBridgeOutputRouteUpdatedEventName);
+        isolation?isolation->Name(L"RouteUpdated").c_str():pico_ot::bridge::kBridgeOutputRouteUpdatedEventName);
+    if(isolation && routeUpdatedEvent && GetLastError()==ERROR_ALREADY_EXISTS)throw std::runtime_error("isolated route event collision");
     if (routeUpdatedEvent == nullptr) {
         std::cerr << "Failed to create output-route event: " << GetLastError() << '\n';
         CloseHandle(instanceMutex);
@@ -445,11 +480,12 @@ int main(int argc, char** argv) {
     }
 
     StatusMapping status;
-    OpenStatusMapping(status);
+    if(!OpenStatusMapping(status,isolation?isolation->Name(L"Status"):pico_ot::bridge::kBridgeServiceStatusMappingName,isolation!=nullptr) && isolation)throw std::runtime_error("isolated status unavailable");
 
     Receiver receiver;
     ReceiverConfig receiverConfig;
-    receiverConfig.listenPort = pico_ot::bridge::kHmdIngressPort;
+    receiverConfig.listenPort = isolation?isolation->ingress:pico_ot::bridge::kHmdIngressPort;
+    receiverConfig.loopbackOnly = isolation!=nullptr;
     receiverConfig.timeSyncIntervalNs = 1'000'000'000LL;
     receiverConfig.staleTimeoutNs = 500'000'000LL;
     receiverConfig.exclusiveBind = true;
@@ -468,9 +504,9 @@ int main(int argc, char** argv) {
         diagnostic.Poll(receiver,pico_ot::bridge::MonotonicNowNs());
     });
 
-    OutputSink steamVr{"SteamVR", pico_ot::bridge::kSteamVrFanoutPort};
-    OutputSink monaka{"MonakaVR", pico_ot::bridge::kMonakaFanoutPort};
-    OutputSink utility{"Utility", pico_ot::bridge::kUtilityFanoutPort};
+    OutputSink steamVr{"SteamVR", isolation?isolation->steam:pico_ot::bridge::kSteamVrFanoutPort};
+    OutputSink monaka{"MonakaVR", isolation?isolation->monaka:pico_ot::bridge::kMonakaFanoutPort};
+    OutputSink utility{"Utility", isolation?isolation->utility:pico_ot::bridge::kUtilityFanoutPort};
     if (!StartSink(steamVr) || !StartSink(monaka) || !StartSink(utility)) {
         diagnostic.Event("fatal_error",{{"operation","fanout Start"}});
         receiver.Stop();
@@ -518,6 +554,7 @@ int main(int argc, char** argv) {
                   << " space=" << observationIdentity->SpaceId()
                   << " revision=" << observationIdentity->Revision() << '\n';
     } catch (const std::exception& e) {
+        if(isolation)throw;
         observationAdapter.reset();
         std::cerr << "C1 provider disabled; legacy outputs continue: " << e.what() << '\n';
     }
@@ -539,15 +576,23 @@ int main(int argc, char** argv) {
         if (admissionConfig.enabled && observationAdapter) {
             try { observationPublisher.Publish(*observationAdapter,receiver,pico_ot::bridge::MonotonicNowNs()); }
             catch (const std::exception& e) {
+                if(isolation)throw;
                 diagnostic.Event("fatal_error",{{"operation","observation provider"},{"message",e.what()}});
                 observationAdapter.reset();
             }
         }
     });
 
+    if(isolation) {
+        std::cout<<"ISOLATED_FAKE_INPUT "<<isolation->id<<" ingress=127.0.0.1:"<<receiver.ListenPort()<<" owner="<<isolation->ownerPid<<std::endl;
+    }
     lifecycle->MarkReady();
     while (gRun.load()) {
         if (lifecycle->StopRequested()) break;
+        if(isolation) {
+            pc_service_lifecycle::Handle harness(pc_service_lifecycle::OpenIdentity(isolation->ownerPid,isolation->ownerCreated));
+            if(WaitForSingleObject(harness.value,0)!=WAIT_TIMEOUT)break;
+        }
         const int64_t nowNs = pico_ot::bridge::MonotonicNowNs();
 
         bool reloadRoute = false;
@@ -582,6 +627,7 @@ int main(int argc, char** argv) {
         // loop's route-poll timestamp. Observe the updated cache with a new time.
         diagnostic.Poll(receiver,pico_ot::bridge::MonotonicNowNs());
 
+        if(isolation && receiverErrorLogged)throw std::runtime_error("isolated receiver failed");
         PumpSinkControl(steamVr);
         PumpSinkControl(monaka);
         PumpSinkControl(utility);
@@ -592,11 +638,13 @@ int main(int argc, char** argv) {
             try {
                 observationPublisher.Publish(*observationAdapter,receiver,pico_ot::bridge::MonotonicNowNs());
             } catch (const std::exception& e) {
+                if(isolation)throw;
                 observationAdapter.reset();
                 std::cerr << "C1 provider disabled; legacy outputs continue: " << e.what() << '\n';
             }
         }
 
+        if(isolation && observationPublisher.Errors())throw std::runtime_error("isolated observation publication failed");
         if (nowNs >= nextStatusPublishNs) {
             PublishStatus(status, route, receiver);
             nextStatusPublishNs = nowNs + 250'000'000LL;
@@ -616,3 +664,5 @@ int main(int argc, char** argv) {
     CloseHandle(instanceMutex);
     return 0;
 }
+
+int main(int argc,char** argv) try {return RunService(argc,argv);} catch(const std::exception& error) {std::cerr<<"Receiver failed closed: "<<error.what()<<std::endl;return 9;}
