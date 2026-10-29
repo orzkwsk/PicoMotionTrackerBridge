@@ -88,7 +88,7 @@ class Fixture:
     def collect(self,seconds=.25):
         end=time.monotonic()+seconds
         while time.monotonic()<end:
-            ready,_,_=select.select(self.sockets,[],[],min(.03,max(0,end-time.monotonic())))
+            ready,_,_=select.select([s for s in self.sockets if s.fileno()>=0],[],[],min(.03,max(0,end-time.monotonic())))
             for s in ready:
                 data,_=s.recvfrom(65535);i=self.sockets.index(s);self.counts[i]+=1
                 if i==3:self.messages.append(json.loads(data))
