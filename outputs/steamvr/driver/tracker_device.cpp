@@ -137,6 +137,18 @@ vr::EVRInitError TrackerDevice::Activate(uint32_t objectId) {
         container, vr::Prop_ManufacturerName_String, "PICO");
     vr::VRProperties()->SetStringProperty(
         container, vr::Prop_TrackingSystemName_String, "pico_ot_bridge");
+    vr::VRProperties()->SetStringProperty(
+        container, vr::Prop_NamedIconPathDeviceReady_String,
+        "{pico_ot_bridge}/icons/tracker_active.png");
+    vr::VRProperties()->SetStringProperty(
+        container, vr::Prop_NamedIconPathDeviceSearching_String,
+        "{pico_ot_bridge}/icons/tracker_searching@2x.gif");
+    vr::VRProperties()->SetStringProperty(
+        container, vr::Prop_NamedIconPathDeviceStandby_String,
+        "{pico_ot_bridge}/icons/tracker_inactive.png");
+    vr::VRProperties()->SetStringProperty(
+        container, vr::Prop_NamedIconPathDeviceOff_String,
+        "{pico_ot_bridge}/icons/tracker_disconnected.png");
     vr::VRProperties()->SetBoolProperty(
         container, vr::Prop_DeviceIsWireless_Bool, true);
     // Backend battery semantics are still a raw bucket candidate, so do not
