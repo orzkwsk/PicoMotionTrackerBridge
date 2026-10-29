@@ -14,6 +14,8 @@ namespace PcServiceLifecycle {
     internal sealed class Control : IDisposable {
         readonly string name, executable, logs, executableSha;
         readonly bool isolated;
+        readonly object lifecycleGate = new object();
+        bool stopRequested;
         Process child;
         StreamWriter stdout, stderr;
         internal Control(string mappingName, string serviceExecutable, string logDirectory, bool isolated = false) {
@@ -80,6 +82,13 @@ namespace PcServiceLifecycle {
                     throw new IOException("Receiver belongs to another controller or a headless session; it will not be stopped or replaced");
         }
         internal void EnsureRunning(string additionalArguments) {
+            if(!isolated) {EnsureRunningCore(additionalArguments);return;}
+            lock(lifecycleGate) {
+                if(stopRequested)throw new IOException("Isolated receiver stop already requested; no later spawn allowed");
+                EnsureRunningCore(additionalArguments);
+            }
+        }
+        void EnsureRunningCore(string additionalArguments) {
             if(isolated&&!additionalArguments.StartsWith(" --isolated-profile ",StringComparison.Ordinal))throw new IOException("Isolated service profile missing");
             var existing=Read(name);
             if(existing!=null) {
@@ -118,6 +127,13 @@ namespace PcServiceLifecycle {
             throw new IOException("Service startup confirmation timed out. The tray remains available for stop/retry. Logs: "+logs);
         }
         internal void StopAndWait(int timeoutMs) {
+            if(!isolated) {StopAndWaitCore(timeoutMs);return;}
+            lock(lifecycleGate) {
+                stopRequested=true;
+                StopAndWaitCore(timeoutMs);
+            }
+        }
+        void StopAndWaitCore(int timeoutMs) {
             var state=Read(name);
             if(state==null) {
                 if(isolated) {
