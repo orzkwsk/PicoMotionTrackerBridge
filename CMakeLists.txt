@@ -234,10 +234,17 @@ if(PICO_OT_BUILD_STEAMVR_DRIVER)
 
     add_custom_command(TARGET pico_ot_steamvr_driver POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
-            "${PICO_OT_STEAMVR_PACKAGE_DIR}"
+            "${PICO_OT_STEAMVR_PACKAGE_DIR}/resources/icons"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/driver.vrdrivermanifest"
-            "${PICO_OT_STEAMVR_PACKAGE_DIR}/driver.vrdrivermanifest")
+            "${PICO_OT_STEAMVR_PACKAGE_DIR}/driver.vrdrivermanifest"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/resources/icons/tracker_active.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/resources/icons/tracker_inactive.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/resources/icons/tracker_disconnected.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/resources/icons/tracker_searching.gif"
+            "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/resources/icons/tracker_searching@2x.gif"
+            "${PICO_OT_STEAMVR_PACKAGE_DIR}/resources/icons")
 endif()
 
 if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
