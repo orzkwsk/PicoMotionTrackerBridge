@@ -31,10 +31,11 @@ AdmissionResult ApplyPicoAdmission(p::TrackerObservation& v, const bridge::PoseP
         v.orientation=p::QuatXyzw{q.x,q.y,q.z,q.w};
     const bool rawFull=pose.positionValid && pose.orientationSamplePresent &&
         v.position.has_value() && OrientationSane(q);
-    // Source-space authority is a prerequisite even when admission is disabled.
-    // Unknown space resets confirmation without relabeling a sane raw pose invalid.
-    auto result=gate.Process(pose,time,rawFull,fresh && sourceSpaceKnown);
-    if (!sourceSpaceKnown) result.reason="source_space_unknown";
+    // A missing physical continuity declaration is diagnostic metadata, not
+    // evidence that structurally valid PICO pose components are unavailable.
+    // Raw validity, freshness, and optional reacquisition confirmation still apply.
+    auto result=gate.Process(pose,time,rawFull,fresh);
+    if (!sourceSpaceKnown) result.reason="source_space_unknown_nonblocking";
     const bool full=result.effective_valid;
     v.validity={full,full}; v.modality=full ? "full" : "none";
     v.orientation_evidence=full ? "sample_sanity" : "none";
