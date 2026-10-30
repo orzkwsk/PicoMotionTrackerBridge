@@ -4,7 +4,12 @@
 #include <string>
 namespace pico_ot {
 std::string NewObservationUuid();
-struct SourceSpaceState { uint32_t revision=0; bool known=false; };
+struct SourceSpaceState {
+    uint32_t revision=0;
+    bool known=false;
+    // Diagnostic metadata write failed; stable identity/revision remain intact.
+    bool metadataPersisted=true;
+};
 // Single-owner PC service holds its instance mutex for this file's lifetime.
 class ObservationIdentity {
 public:
@@ -22,6 +27,7 @@ private:
     uint32_t revision_ = 0;
     std::string generation_;
     bool known_=false;
+    bool metadataPersisted_=true;
     void Save(uint32_t revision);
 };
 }

@@ -39,6 +39,10 @@ generation preserves revision. Missing, unreadable or malformed optional
 sidecars mean unknown quality; they do not disable normal Pose. A saturated
 diagnostic revision does not wrap or replace identity: a new declaration remains
 unknown. Explicit identity-generation writes still reject overflow/corruption.
+Failure to save optional quality metadata preserves the durable identity and
+generation, reports `metadata=not_persisted` with unknown quality, and leaves
+normal Pose available. Initial identity creation and corrupt identity still
+fail instead of silently creating/replacing the source.
 
 An actual recorded revision transition starts a new observation session before
 resetting short-lived sequence/derivative/admission history. A quality-only

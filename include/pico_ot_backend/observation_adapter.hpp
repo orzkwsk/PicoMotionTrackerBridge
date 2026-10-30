@@ -19,7 +19,8 @@ struct ObservationConfig {
     int64_t staleTimeoutNs = 500'000'000;
     size_t maxDevices = 256;
     std::function<std::string()> newUuid;
-    // Called before publication; persistence failure prevents output.
+    // Called before publication. Optional quality-write failure is diagnostic;
+    // stable identity construction/validation remains a separate requirement.
     std::function<SourceSpaceState(uint64_t)> sourceSpace;
     AdmissionConfig admission;
     // Capture raw pose separately from the effective protocol envelope. Must be

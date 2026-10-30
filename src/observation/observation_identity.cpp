@@ -78,13 +78,20 @@ SourceSpaceState ObservationIdentity::RefreshSpace(uint64_t senderSession) {
     // Retain the durable identity/high-water; the new declaration is unknown.
     if(declared&&nextGeneration!=generation_&&revision_==(std::numeric_limits<uint32_t>::max)())declared=false;
     const bool changed=declared&&nextGeneration!=generation_;
-    if(changed||declared!=known_){
-        const auto previousGeneration=generation_;const bool previousKnown=known_;
+    if(changed||declared!=known_||!metadataPersisted_){
+        const auto previousGeneration=generation_;
         generation_=declared?nextGeneration:generation_;known_=declared;
         try { if(changed)AdvanceRevision();else Save(revision_); }
-        catch(...){generation_=previousGeneration;known_=previousKnown;throw;}
+        catch(const std::exception&){
+            // This write only records optional quality metadata. Keep the
+            // durable identity/generation high-water and report uncertainty;
+            // never stop otherwise usable native Pose or pretend it was saved.
+            generation_=previousGeneration;known_=false;metadataPersisted_=false;
+            return {revision_,false,false};
+        }
+        metadataPersisted_=true;
     }
-    return {revision_,known_};
+    return {revision_,known_,metadataPersisted_};
 }
 void ObservationIdentity::Save(uint32_t revision) {
     if (!path_.parent_path().empty()) std::filesystem::create_directories(path_.parent_path());

@@ -534,12 +534,13 @@ int RunService(int argc, char** argv) {
         config.spaceRevision=observationIdentity->Revision();
         config.clockEpochPcNs=pico_ot::bridge::MonotonicNowNs();
         config.newUuid=pico_ot::NewObservationUuid;
-        config.sourceSpace=[&,lastSender=uint64_t(0),lastRevision=uint32_t(0),lastKnown=false](uint64_t sender) mutable {
+        config.sourceSpace=[&,lastSender=uint64_t(0),lastRevision=uint32_t(0),lastKnown=false,lastPersisted=true](uint64_t sender) mutable {
             const auto state=observationIdentity->RefreshSpace(sender);
-            if(sender!=lastSender||state.revision!=lastRevision||state.known!=lastKnown){
+            if(sender!=lastSender||state.revision!=lastRevision||state.known!=lastKnown||state.metadataPersisted!=lastPersisted){
                 std::cout<<"SOURCE_SPACE sender_session="<<sender<<" generation="<<observationIdentity->Generation()
-                         <<" revision="<<state.revision<<" status="<<(state.known?"known":"unknown")<<std::endl;
-                lastSender=sender;lastRevision=state.revision;lastKnown=state.known;
+                         <<" revision="<<state.revision<<" status="<<(state.known?"known":"unknown")
+                         <<" metadata="<<(state.metadataPersisted?"persisted":"not_persisted")<<std::endl;
+                lastSender=sender;lastRevision=state.revision;lastKnown=state.known;lastPersisted=state.metadataPersisted;
             }
             return state;
         };
