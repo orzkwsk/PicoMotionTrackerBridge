@@ -2,6 +2,7 @@
 #include <android/log.h>
 
 #include "pico_ot_backend/pico_ot_backend.h"
+#include "internal/startup_diagnostics.hpp"
 #include "pico_ot_bridge/publisher.hpp"
 #include "pico_ot_bridge/monotonic_clock.hpp"
 
@@ -480,10 +481,24 @@ jobject ToStartResult(JNIEnv* env, const StartResult& result) {
 
 extern "C" JNIEXPORT jobject JNICALL
 Java_com_orz_picootbackendtest_MainActivity_nativeStart(JNIEnv* env, jclass) {
+    pico_ot::internal::TraceStartupEvent("jni.native_start.enter");
     LogInfo("JNI nativeStart: enter");
     const StartResult result = StartBackend();
+    pico_ot::internal::TraceStartupEvent("jni.native_start.return", result.success ? 1 : 0);
     LogInfo("JNI nativeStart: return");
     return ToStartResult(env, result);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeConfigureStartupDiagnostics(
+    JNIEnv*, jclass, jboolean enabled) {
+    pico_ot::internal::EnableStartupDiagnostics(enabled == JNI_TRUE);
+    pico_ot::internal::TraceStartupEvent("app.on_create");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeMarkManualBackendStart(JNIEnv*, jclass) {
+    pico_ot::internal::TraceStartupEvent("app.manual_backend_start");
 }
 
 extern "C" JNIEXPORT void JNICALL

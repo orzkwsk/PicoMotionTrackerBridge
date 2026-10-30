@@ -47,6 +47,8 @@ public final class MainActivity extends Activity {
     };
 
     private static native StartResult nativeStart();
+    private static native void nativeConfigureStartupDiagnostics(boolean enabled);
+    private static native void nativeMarkManualBackendStart();
     private static native StartResult nativeRestart();
     private static native String nativeSnapshot();
     private static native void nativeStop();
@@ -56,6 +58,7 @@ public final class MainActivity extends Activity {
     private static native void nativeStopBridge();
 
     private void startBackend() {
+        nativeMarkManualBackendStart();
         Log.i(TAG, "JAVA startBackend: entering nativeStart");
         final StartResult result = nativeStart();
         backendMessage = result.message;
@@ -98,6 +101,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "JAVA onCreate: begin");
         super.onCreate(savedInstanceState);
+        nativeConfigureStartupDiagnostics(getIntent().getBooleanExtra("startup_trace", false));
 
         final SharedPreferences preferences = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         final boolean firstAttach = processBridge == null;
