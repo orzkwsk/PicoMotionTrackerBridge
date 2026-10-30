@@ -251,10 +251,12 @@ void AdmissionSourceSpaceAuthority() {
             RoundTrip(values);return Find<p::TrackerObservation>(values);
         };
         auto unknown=sample(1);
-        Check(!unknown.validity.position && !unknown.validity.orientation && !unknown.linear_velocity &&
-              unknown.modality=="none" && unknown.tracking_state=="lost","unknown space bypassed authority");
-        Check(last.raw_valid && !last.effective_valid && std::string(last.reason)=="source_space_unknown",
-              "raw validity confused with source-space authority");
+        Check(unknown.validity.position==!enabled && unknown.validity.orientation==!enabled &&
+              unknown.linear_velocity.has_value()==!enabled,
+              "source-space declaration incorrectly suppresses a valid normal-path pose");
+        Check(last.raw_valid && last.effective_valid==!enabled &&
+              std::string(last.reason)=="source_space_unknown_nonblocking",
+              "source-space diagnostics contaminated the raw/optional admission decision");
         Check(unknown.position.has_value()==!enabled && unknown.orientation.has_value()==!enabled,
               "disabled compatibility or enabled raw isolation changed");
         r.spaceKnown=true;
@@ -268,8 +270,8 @@ void AdmissionSourceSpaceAuthority() {
         Check(restart.validity.position==!enabled,"sender restart retained admission state");
         Check(sample(1,202).validity.position,"sender restart failed to reacquire");
         r.spaceKnown=false;++r.revision;
-        auto revoked=sample(2,202);Check(!revoked.validity.position && revoked.coordinate_space.revision==11,
-                                        "space invalidation did not revoke admitted pose");
+        auto revoked=sample(2,202);Check(revoked.validity.position==!enabled && revoked.coordinate_space.revision==11,
+                                        "unknown source-space state blocked a fresh structurally valid pose");
         r.spaceKnown=true;
         Check(sample(3,202).validity.position==!enabled,"space recovery inherited prior confirmation");
         Check(sample(4,202).validity.position,"space recovery failed to admit");
