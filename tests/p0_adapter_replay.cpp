@@ -18,6 +18,7 @@ int main(int argc,char**argv)try{
  b::UdpSocket sender;std::string error;require(receiver.Start(rc,&error),error.c_str());require(sender.Open(0,true,&error,true,true),error.c_str());
  pico_ot::ObservationConfig config;config.sourceId=identity.SourceId();config.spaceId=identity.SpaceId();config.spaceRevision=identity.Revision();
  config.clockEpochPcNs=epoch;config.newUuid=pico_ot::NewObservationUuid;config.sourceSpace=[&](uint64_t session){return identity.RefreshSpace(session);};
+ require(!std::filesystem::exists(std::filesystem::u8path(argv[2])),"refusing to replace existing replay evidence");
  pico_ot::PicoObservationAdapter adapter(config);std::ofstream out(std::filesystem::u8path(argv[2]));require(bool(out),"create new fixture output");
  for(uint32_t i=0;i<90;++i){
   b::PosePacket raw;raw.serial="P0-SYNTHETIC-PICO";raw.connectedSnapshot=true;raw.positionValid=i<40||i>=50;raw.orientationSamplePresent=true;
