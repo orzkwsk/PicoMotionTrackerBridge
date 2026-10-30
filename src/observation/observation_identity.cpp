@@ -63,23 +63,25 @@ uint32_t ObservationIdentity::AdvanceRevision() {
 }
 SourceSpaceState ObservationIdentity::RefreshSpace(uint64_t senderSession) {
     // The PICO transport currently has no runtime space-generation indication.
-    // An explicit declaration names a space generation independently of sender
-    // sessions; an unmatched session is UNKNOWN, never silently continuous.
+    // Optional declarations describe continuity; they never authorize native
+    // Pose. Unknown/unreadable declarations leave quality unknown, not unusable.
     auto declaration=path_;declaration+=".space";
     bool declared=false;std::string nextGeneration;
-    if(std::filesystem::exists(declaration)){
+    try { if(std::filesystem::exists(declaration)){
         if(std::filesystem::file_size(declaration)>2048)throw std::runtime_error("space declaration too large");
         std::ifstream f(declaration);std::string marker,source,space,sender,status,extra;
         if(!std::getline(f,marker)||!std::getline(f,source)||!std::getline(f,space)||!std::getline(f,nextGeneration)||!std::getline(f,sender)||!std::getline(f,status)||std::getline(f,extra)||marker!="pico-source-space-declaration-v1"||source!=source_||space!=space_||nextGeneration.empty()||nextGeneration.size()>128||sender.empty()||sender.find_first_not_of("0123456789")!=std::string::npos||(status!="known"&&status!="unknown"))
-            throw std::runtime_error("invalid source-space declaration; output disabled");
+            throw std::runtime_error("invalid optional source-space declaration");
         declared=status=="known"&&std::stoull(sender)==senderSession;
-    }
+    } } catch(const std::exception&) { declared=false;nextGeneration.clear(); }
+    // Exhausted diagnostic generations must not wrap or revoke normal Pose.
+    // Retain the durable identity/high-water; the new declaration is unknown.
+    if(declared&&nextGeneration!=generation_&&revision_==(std::numeric_limits<uint32_t>::max)())declared=false;
     const bool changed=declared&&nextGeneration!=generation_;
-    const bool becameUnknown=!declared&&known_;
-    if(changed||becameUnknown||declared!=known_){
+    if(changed||declared!=known_){
         const auto previousGeneration=generation_;const bool previousKnown=known_;
         generation_=declared?nextGeneration:generation_;known_=declared;
-        try { if(changed||becameUnknown)AdvanceRevision();else Save(revision_); }
+        try { if(changed)AdvanceRevision();else Save(revision_); }
         catch(...){generation_=previousGeneration;known_=previousKnown;throw;}
     }
     return {revision_,known_};

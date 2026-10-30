@@ -236,7 +236,7 @@ void AdmissionPacketBurst() {
         "same-Pump invalid sample hidden by latest cache");
     Check(adapter.Collect(r.receiver,b::MonotonicNowNs()).empty(),"loop republished accepted sample");
 }
-void AdmissionSourceSpaceAuthority() {
+void SourceSpaceIsDiagnostic() {
     for (bool enabled : {false,true}) {
         Rig r; r.spaceKnown=false; auto config=r.Config();
         Check(!config.admission.enabled,"admission unexpectedly enabled by default");
@@ -251,16 +251,16 @@ void AdmissionSourceSpaceAuthority() {
             RoundTrip(values);return Find<p::TrackerObservation>(values);
         };
         auto unknown=sample(1);
-        Check(!unknown.validity.position && !unknown.validity.orientation && !unknown.linear_velocity &&
-              unknown.modality=="none" && unknown.tracking_state=="lost","unknown space bypassed authority");
-        Check(last.raw_valid && !last.effective_valid && std::string(last.reason)=="source_space_unknown",
-              "raw validity confused with source-space authority");
+        Check(unknown.validity.position==!enabled && unknown.validity.orientation==!enabled &&
+              unknown.modality==(!enabled?"full":"none"),"unknown quality blocked normal Pose");
+        Check(last.raw_valid && last.effective_valid==!enabled && std::string(last.reason)=="source_space_unknown_diagnostic",
+              "raw validity confused with quality declaration");
         Check(unknown.position.has_value()==!enabled && unknown.orientation.has_value()==!enabled,
               "disabled compatibility or enabled raw isolation changed");
         r.spaceKnown=true;
-        auto first=sample(2);Check(first.session_id!=unknown.session_id && first.sequence==0,
-                                  "space-known transition reused sequence/session");
-        Check(first.validity.position==!enabled,"new authority inherited admission confirmation");
+        auto first=sample(2);Check(first.session_id==unknown.session_id && first.sequence==1,
+                                  "quality-only status replaced the sample session");
+        Check(first.validity.position,"quality status reset optional confirmation");
         auto admitted=sample(3);Check(admitted.validity.position && admitted.linear_velocity.has_value(),"known space did not recover");
         auto restart=sample(0,202);
         Check(restart.session_id!=admitted.session_id && restart.coordinate_space.revision==admitted.coordinate_space.revision,
@@ -268,15 +268,15 @@ void AdmissionSourceSpaceAuthority() {
         Check(restart.validity.position==!enabled,"sender restart retained admission state");
         Check(sample(1,202).validity.position,"sender restart failed to reacquire");
         r.spaceKnown=false;++r.revision;
-        auto revoked=sample(2,202);Check(!revoked.validity.position && revoked.coordinate_space.revision==11,
-                                        "space invalidation did not revoke admitted pose");
+        auto changed=sample(2,202);Check(changed.validity.position==!enabled && changed.coordinate_space.revision==11,
+                                        "diagnostic revision blocked normal Pose");
         r.spaceKnown=true;
-        Check(sample(3,202).validity.position==!enabled,"space recovery inherited prior confirmation");
+        Check(sample(3,202).validity.position,"quality recovery reset optional confirmation");
         Check(sample(4,202).validity.position,"space recovery failed to admit");
     }
 }
 int main() {
-    try { MappingAndStreams(); SessionAndWrap(); ResyncAndStale(); CountsAndBind(); PublisherAndLegacy(); Identity(); AdmissionBoundary(); AdmissionPacketBurst(); AdmissionSourceSpaceAuthority(); }
+    try { MappingAndStreams(); SessionAndWrap(); ResyncAndStale(); CountsAndBind(); PublisherAndLegacy(); Identity(); AdmissionBoundary(); AdmissionPacketBurst(); SourceSpaceIsDiagnostic(); }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
     std::cout << "PASS observation mapping, streams, resync/age, wrap/session, bounded cache, single bind, UDP/legacy, persistent identity\n";
 }
