@@ -268,6 +268,8 @@ void SourceSpaceIsDiagnostic() {
         Check(restart.validity.position==!enabled,"sender restart retained admission state");
         Check(sample(1,202).validity.position,"sender restart failed to reacquire");
         r.spaceKnown=false;++r.revision;
+        Check(adapter.Collect(r.receiver,b::MonotonicNowNs()).empty(),
+              "recorded generation republished the cached native sample");
         auto changed=sample(2,202);Check(changed.validity.position==!enabled && changed.coordinate_space.revision==11,
                                         "diagnostic revision blocked normal Pose");
         r.spaceKnown=true;

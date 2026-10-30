@@ -49,6 +49,10 @@ resetting short-lived sequence/derivative/admission history. A quality-only
 known/unknown transition does not rotate the live sample session. Sender restart
 still starts a fresh observation session and drops old samples. Merely starting
 an empty receiver does not query a zero sender or mutate saved map state.
+On a recorded generation change, the last native packet cursors are retained:
+changing metadata alone does not republish a cached Pose in the new session.
+The next genuinely new native packet resumes output with its original immutable
+receive timestamp. Transport restart still clears the old native cache.
 
 Read the service's `SOURCE_SPACE sender_session=... generation=... revision=...
 status=...` log. `scripts/prepare_source_space.py` creates a separate declaration

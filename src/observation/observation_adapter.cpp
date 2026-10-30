@@ -59,9 +59,16 @@ PicoObservationAdapter::PicoObservationAdapter(ObservationConfig config) : confi
     std::string wire; p::Error error;
     if (!p::EncodeEnvelope(probe,wire,error)) throw std::invalid_argument(error.message);
 }
-void PicoObservationAdapter::Rotate() {
+void PicoObservationAdapter::Rotate(bool preserveNativeCursors) {
     const auto session = config_.newUuid();
-    session_ = session; progress_.clear();
+    session_ = session;
+    if (!preserveNativeCursors) { progress_.clear(); return; }
+    for (auto& [serial, previous] : progress_) {
+        Progress next(config_.admission,config_.staleTimeoutNs);
+        next.poseSeen=previous.poseSeen;next.pose=previous.pose;
+        next.deviceSeen=previous.deviceSeen;next.device=previous.device;
+        previous=std::move(next);
+    }
 }
 bool PicoObservationAdapter::StampSentAt(p::Envelope& value, int64_t now) const {
     if (now < config_.clockEpochPcNs) return false;
@@ -92,7 +99,7 @@ std::vector<p::Envelope> PicoObservationAdapter::Collect(const bridge::Receiver&
         config_.spaceRevision=space.revision;
         // A recorded coordinate generation drops short-lived history. Mere
         // quality-status changes do not replace a live transport/sample session.
-        if(!progress_.empty())Rotate();
+        if(!progress_.empty())Rotate(true);
     }
     spaceKnown_=space.known;
     if (sender != sender_) {

@@ -54,7 +54,7 @@ private:
     uint64_t diagnosticErrors_ = 0;
     bool spaceKnown_=false;
     std::map<std::string, Progress> progress_;
-    void Rotate();
+    void Rotate(bool preserveNativeCursors = false);
     template<class T> void Header(T& value, const std::string& serial,
                                  int64_t sequence, int64_t received, int64_t now) const;
 };
