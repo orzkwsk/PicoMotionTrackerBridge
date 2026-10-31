@@ -15,5 +15,7 @@ jobs:
         run: python scripts/test_release_v2.py
       - name: Optimized Python release gate regressions
         run: python -O scripts/test_release_v2.py
+      - name: Fixed runtime launcher regressions (no product process)
+        run: python -B tests/runtime_launcher_tests.py
       # Unit tests only. Release artifacts require the documented clean-tree
       # scripts/release_v2.py build on a configured Windows x64 release host.

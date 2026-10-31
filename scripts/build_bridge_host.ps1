@@ -1,23 +1,14 @@
 param(
     [ValidateSet("Debug", "Release", "RelWithDebInfo", "MinSizeRel")]
-    [string]$Config = "Debug"
+    [string]$Config = "Release"
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$BuildDir = Join-Path $RepoRoot "build-bridge-host"
+$BuildDir = Join-Path $RepoRoot "Build\runtime"
 
-$cmake = (Get-Command cmake -ErrorAction SilentlyContinue).Source
-if (-not $cmake) {
-    $candidates = @(
-        "C:\Program Files\Microsoft Visual Studio\18\Insiders\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe",
-        "C:\Program Files\CMake\bin\cmake.exe"
-    )
-    $cmake = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-}
-if (-not $cmake) {
-    throw "cmake.exe was not found."
-}
+. (Join-Path $PSScriptRoot 'find_cmake.ps1')
+$cmake = Find-InstalledCMake
 
 & $cmake -S $RepoRoot -B $BuildDir `
     -DPICO_OT_BUILD_STEAMVR_DRIVER=OFF `

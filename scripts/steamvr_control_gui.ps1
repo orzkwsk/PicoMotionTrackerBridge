@@ -16,7 +16,7 @@ $LifecycleSource = Join-Path $RepoRoot "tools\service_lifecycle_control.cs"
 $BlackIcon = Join-Path $RepoRoot "assets\icons\pico-tray-black.ico"
 $WhiteIcon = Join-Path $RepoRoot "assets\icons\pico-tray-white.ico"
 $BuildDir = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
-    Join-Path $RepoRoot "build-gui"
+    Join-Path $RepoRoot "Build\runtime\control\Release"
 } else {
     [IO.Path]::GetFullPath($OutputDirectory)
 }

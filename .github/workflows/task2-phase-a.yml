@@ -14,11 +14,11 @@ jobs:
         with:
           python-version: '3.13'
       - run: python scripts/import_protocol_kit.py --verify
-      - run: cmake -S . -B build -DPICO_OT_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
-      - run: cmake --build build --config Debug
-      - run: ctest --test-dir build -C Debug --output-on-failure
-      - run: cmake -S integrations/monaka -B build/capi -DCMAKE_BUILD_TYPE=Debug
-      - run: cmake --build build/capi --config Debug
-      - run: ctest --test-dir build/capi -C Debug --output-on-failure
+      - run: cmake -S . -B Build/runtime -DPICO_OT_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build Build/runtime --config Debug
+      - run: ctest --test-dir Build/runtime -C Debug --output-on-failure
+      - run: cmake -S integrations/monaka -B Build/capi -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build Build/capi --config Debug
+      - run: ctest --test-dir Build/capi -C Debug --output-on-failure
       - run: python scripts/package_bridge_extraction.py
       - run: python scripts/verify_bridge_extraction.py --build

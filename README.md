@@ -1,6 +1,20 @@
 # PicoMotionTrackerBridge
 
-Current local HIL candidate: use `Start_Receiver.cmd` with a verified artifact catalog. See [docs/source-space-authority.md](docs/source-space-authority.md). Historical build/deploy instructions below are developer workflows, not normal startup.
+Normal PC startup is `Start_Receiver.cmd`, using the latest local build at `Build/runtime`.
+Build that fixed location explicitly with `python scripts/build_runtime.py`, then use
+`Start_Receiver.cmd --check` for a file-only artifact and current-user state check.
+Native service output is `Build/runtime/Release`; GUI output is `Build/runtime/control/Release`.
+No normal launcher builds, invokes ADB, registers a driver, or copies/rewrites configuration.
+The native current-user identity and route remain in LocalAppData/PicoMotionTrackerBridge;
+the check reports missing state and the selected route separately from artifact readiness.
+Missing native state retains the native first-run behavior when explicitly starting normally.
+`Start_GUI.cmd` aliases normal Receiver startup; `Start_Bridge_Service.cmd` adds `--tray-only`.
+The older `scripts/start_pc_bridge_service.ps1` also delegates to that prebuilt
+tray entry; it accepts only the fixed Release configuration and optional `-Check`.
+`Start_All.cmd` and `Start_PICO_Backend.cmd` remain deprecated no-action entries.
+Use the explicit BackendTestApp developer workflow for HMD deployment/startup.
+The artifact-set launcher remains available only for explicit HIL workflows.
+Historical build/deploy instructions below are developer workflows.
 
 Version **0.1**
 

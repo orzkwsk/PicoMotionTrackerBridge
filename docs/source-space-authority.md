@@ -41,8 +41,13 @@ review the candidate and identity SHA, atomically replace the sidecar, then
 verify current observations. An already observed unknown interval requires
 binding/World/Output review at the new revision. Never manually lower revision.
 
-Normal PC startup is `Start_Receiver.cmd`, selecting the latest successful
-compatible artifact set. The four old Start_* entry points are deprecated and
-exit without actions. Build scripts are explicit developer tools. Normal
-startup never invokes ADB, registration, or a build. Window X retains tray and
-service; Exit gracefully stops only its owned service and then closes the tray.
+Normal PC startup is `Start_Receiver.cmd`, reading fixed repository
+`Build/runtime/Release` native output and `Build/runtime/control/Release` GUI output.
+`python scripts/build_runtime.py` builds them explicitly. `--check` starts no
+executable and reports artifacts separately from current-user identity/route state.
+`Start_GUI.cmd` delegates to Receiver; `Start_Bridge_Service.cmd` adds `--tray-only`.
+The old All/HMD entries remain no-action deprecations. The artifact-set launcher
+is an explicit HIL tool only. Its relative package entries use the catalog directory;
+relative explicit catalog/package arguments use the repository root.
+Normal startup never invokes ADB, registration, or a build. Window X retains tray
+and service; Exit gracefully stops only its owned service and then closes the tray.

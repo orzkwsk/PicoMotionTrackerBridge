@@ -30,6 +30,8 @@ If a normal new-work checkout does not derive from `dev`, stop and report the mi
 
 ## Repository-wide constraints
 
+- Normal launchers resolve the fixed repository `Build/runtime` output from their script location. Do not depend on fixed drive/user paths, task-work, dated packages, or launcher edits after each build; discover external tools from PATH or environment roots.
+
 - Work only in this repository unless the active coordinated task explicitly states otherwise.
 - Preserve the PICO private runtime/ABI boundary and existing build-ID guards.
 - Do not redefine the Monaka protocol schema or hand-roll an incompatible codec. MonakaProtocol owns the contract dependency.
