@@ -2,7 +2,9 @@
 #include <android/log.h>
 
 #include "pico_ot_backend/pico_ot_backend.h"
+#include "internal/startup_diagnostics.hpp"
 #include "pico_ot_bridge/publisher.hpp"
+#include "pico_ot_bridge/monotonic_clock.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -32,6 +34,10 @@ std::atomic<bool> gRun{false};
 std::mutex gPublisherMutex;
 pico_ot::bridge::Publisher gPublisher;
 bool gPublisherErrorLogged = false;
+std::string gPublisherAddress;
+uint16_t gPublisherPort = 0;
+std::atomic<uint64_t> gPollAttempts{0}, gPollSuccess{0}, gPoseSends{0}, gSendFailures{0};
+std::atomic<int64_t> gLastPollNs{0}, gLastSendNs{0};
 
 struct StartResult {
     bool success;
@@ -127,7 +133,11 @@ void SendPoseIfRunning(const pico_ot_pose_t& pose) {
 
     std::string error;
     if (!gPublisher.SendPose(ToTrackerState(pose), &error)) {
+        ++gSendFailures;
         LogPublisherErrorOnce("pose send", error);
+    } else {
+        ++gPoseSends;
+        gLastSendNs.store(pico_ot::bridge::MonotonicNowNs());
     }
 }
 
@@ -255,12 +265,15 @@ void PollLoop(pico_ot_backend_t* backend) {
             if (!dev.connected) continue;
 
             pico_ot_pose_t pose{};
+            ++gPollAttempts;
             rc = pico_ot_poll_pose(backend, dev.serial, &pose);
             if (rc != PICO_OT_OK) {
                 LogError(backend, "poll_pose", rc);
                 continue;
             }
 
+            ++gPollSuccess;
+            gLastPollNs.store(pico_ot::bridge::MonotonicNowNs());
             SendPoseIfRunning(pose);
 
             const std::string serial(dev.serial);
@@ -314,10 +327,13 @@ void PollLoop(pico_ot_backend_t* backend) {
     LogInfo("NATIVE PollLoop: exiting");
 }
 
-StartResult StartBackend() {
+StartResult StartBackend(bool restart = false) {
     LogInfo("NATIVE StartBackend: enter");
     std::lock_guard<std::mutex> lock(gLifecycleMutex);
     LogInfo("NATIVE StartBackend: lifecycle lock acquired");
+    if (!restart && gBackend != nullptr && gRun.load()) {
+        return {true, "Backend ALREADY_RUNNING; no restart or enumeration"};
+    }
     StopLocked();
 
     LogInfo("NATIVE StartBackend: pico_ot_create");
@@ -401,6 +417,11 @@ StartResult StartBackend() {
 
 StartResult StartPublisher(const std::string& pcIpv4, uint16_t port) {
     std::lock_guard<std::mutex> lock(gPublisherMutex);
+    if (gPublisher.IsRunning() && gPublisherAddress == pcIpv4 && gPublisherPort == port) {
+        return {true, "UDP publisher ALREADY_RUNNING; sender session preserved"};
+    }
+    gPublisherAddress.clear();
+    gPublisherPort = 0;
 
     pico_ot::bridge::PublisherConfig config;
     config.pcEndpoint = {pcIpv4, port};
@@ -413,6 +434,8 @@ StartResult StartPublisher(const std::string& pcIpv4, uint16_t port) {
         return {false, "Bridge start failed: " + error};
     }
 
+    gPublisherAddress = pcIpv4;
+    gPublisherPort = port;
     gPublisherErrorLogged = false;
     __android_log_print(
         ANDROID_LOG_INFO, kTag,
@@ -435,6 +458,8 @@ void StopPublisher() {
         LogInfo("BRIDGE stopping");
     }
     gPublisher.Stop();
+    gPublisherAddress.clear();
+    gPublisherPort = 0;
     gPublisherErrorLogged = false;
 }
 
@@ -456,10 +481,24 @@ jobject ToStartResult(JNIEnv* env, const StartResult& result) {
 
 extern "C" JNIEXPORT jobject JNICALL
 Java_com_orz_picootbackendtest_MainActivity_nativeStart(JNIEnv* env, jclass) {
+    pico_ot::internal::TraceStartupEvent("jni.native_start.enter");
     LogInfo("JNI nativeStart: enter");
     const StartResult result = StartBackend();
+    pico_ot::internal::TraceStartupEvent("jni.native_start.return", result.success ? 1 : 0);
     LogInfo("JNI nativeStart: return");
     return ToStartResult(env, result);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeConfigureStartupDiagnostics(
+    JNIEnv*, jclass, jboolean enabled) {
+    pico_ot::internal::EnableStartupDiagnostics(enabled == JNI_TRUE);
+    pico_ot::internal::TraceStartupEvent("app.on_create");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeMarkManualBackendStart(JNIEnv*, jclass) {
+    pico_ot::internal::TraceStartupEvent("app.manual_backend_start");
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -468,6 +507,34 @@ Java_com_orz_picootbackendtest_MainActivity_nativeStop(JNIEnv*, jclass) {
     std::lock_guard<std::mutex> lock(gLifecycleMutex);
     StopLocked();
     LogInfo("JNI nativeStop: return");
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeRestart(JNIEnv* env, jclass) {
+    return ToStartResult(env, StartBackend(true));
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_orz_picootbackendtest_MainActivity_nativeSnapshot(JNIEnv* env, jclass) {
+    std::lock_guard<std::mutex> lifecycle(gLifecycleMutex);
+    std::lock_guard<std::mutex> publisher(gPublisherMutex);
+    const int64_t now = pico_ot::bridge::MonotonicNowNs();
+    const auto age = [now](int64_t stamp) -> int64_t {
+        return stamp > 0 && now >= stamp ? (now - stamp) / 1000000 : -1;
+    };
+    std::ostringstream out;
+    out << "Backend: " << (gBackend != nullptr && gRun.load() ? "RUNNING" : "STOPPED")
+        << "\nEnumerated trackers: " << (gBackend ? pico_ot_device_count(gBackend) : 0)
+        << "\nLifetime poll attempts/success: " << gPollAttempts.load() << "/" << gPollSuccess.load()
+        << "\nLast successful poll age ms (-1=none): " << age(gLastPollNs.load())
+        << "\nUDP publisher: " << (gPublisher.IsRunning() ? "RUNNING" : "STOPPED")
+        << "\nNative endpoint: " << gPublisherAddress << ":" << gPublisherPort
+        << "\nSender session: " << gPublisher.SenderSessionId()
+        << "\nLifetime pose sends/failures: " << gPoseSends.load() << "/" << gSendFailures.load()
+        << "\nLast successful send age ms (-1=none): " << age(gLastSendNs.load())
+        << "\nPC receipt: UNKNOWN (UDP send is not an acknowledgement)"
+        << "\nPoll success does not prove physical tracking validity";
+    return ToJString(env, out.str());
 }
 
 extern "C" JNIEXPORT jstring JNICALL

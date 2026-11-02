@@ -13,9 +13,13 @@ namespace PcServiceLifecycle {
     }
     internal sealed class Control : IDisposable {
         readonly string name, executable, logs, executableSha;
+        readonly bool isolated;
+        readonly object lifecycleGate = new object();
+        bool stopRequested;
         Process child;
         StreamWriter stdout, stderr;
-        internal Control(string mappingName, string serviceExecutable, string logDirectory) {
+        internal Control(string mappingName, string serviceExecutable, string logDirectory, bool isolated = false) {
+            this.isolated=isolated;
             name=mappingName; executable=Path.GetFullPath(serviceExecutable); logs=logDirectory;
             executableSha=File.Exists(executable)?Hash(executable):null;
         }
@@ -78,15 +82,24 @@ namespace PcServiceLifecycle {
                     throw new IOException("Receiver belongs to another controller or a headless session; it will not be stopped or replaced");
         }
         internal void EnsureRunning(string additionalArguments) {
+            if(!isolated) {EnsureRunningCore(additionalArguments);return;}
+            lock(lifecycleGate) {
+                if(stopRequested)throw new IOException("Isolated receiver stop already requested; no later spawn allowed");
+                EnsureRunningCore(additionalArguments);
+            }
+        }
+        void EnsureRunningCore(string additionalArguments) {
+            if(isolated&&!additionalArguments.StartsWith(" --isolated-profile ",StringComparison.Ordinal))throw new IOException("Isolated service profile missing");
             var existing=Read(name);
             if(existing!=null) {
+                if(isolated&&child==null)throw new IOException("Isolated service cannot adopt an existing process");
                 using(var process=Verified(existing)) {
                     RequireOwned(existing);
                     if(existing.Ready && !process.HasExited)return;
                 }
                 throw new IOException("Existing service is not ready");
             }
-            if(AnyUnmanagedProcess())throw new IOException("An existing/legacy service has no compatible lifetime controller. No duplicate was started");
+            if(!isolated&&AnyUnmanagedProcess())throw new IOException("An existing/legacy service has no compatible lifetime controller. No duplicate was started");
             if(!File.Exists(executable))throw new FileNotFoundException("Selected service executable is missing",executable);
             Directory.CreateDirectory(logs);
             string stamp=DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffffffZ");
@@ -114,16 +127,29 @@ namespace PcServiceLifecycle {
             throw new IOException("Service startup confirmation timed out. The tray remains available for stop/retry. Logs: "+logs);
         }
         internal void StopAndWait(int timeoutMs) {
+            if(!isolated) {StopAndWaitCore(timeoutMs);return;}
+            lock(lifecycleGate) {
+                stopRequested=true;
+                StopAndWaitCore(timeoutMs);
+            }
+        }
+        void StopAndWaitCore(int timeoutMs) {
             var state=Read(name);
             if(state==null) {
+                if(isolated) {
+                    if(child!=null&&!child.HasExited)throw new IOException("Owned isolated child is alive without confirmed lifecycle; tray retained");
+                    if(child!=null)child.WaitForExit();
+                    return;
+                }
                 if(AnyUnmanagedProcess())throw new IOException("Service identity unavailable; tray retained, no force kill");
                 return;
             }
             Process verified;
             try {verified=Verified(state);}
-            catch(ArgumentException) {if(!AnyUnmanagedProcess())return;throw;}
+            catch(ArgumentException) {if(isolated) {if(child!=null&&!child.HasExited)throw new IOException("Owned child exit unconfirmed; tray retained");if(child!=null)child.WaitForExit();return;}if(!AnyUnmanagedProcess())return;throw;}
             using(var process=verified) {
                 RequireOwned(state);
+                if(isolated&&(child==null||child.Id!=process.Id||child.StartTime!=process.StartTime))throw new IOException("Isolated stop requires retained exact child handle");
                 using(var stop=EventWaitHandle.OpenExisting(name+"_Stop_"+state.Pid+"_"+state.Created))stop.Set();
                 if(!process.WaitForExit(timeoutMs))throw new IOException("Service did not stop in time. Tray retained; no force kill");
                 if(process.ExitCode!=0)throw new IOException("Service exited with code "+process.ExitCode+". Tray retained; inspect logs: "+logs);

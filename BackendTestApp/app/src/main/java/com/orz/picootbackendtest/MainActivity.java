@@ -9,6 +9,7 @@ import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Bundle;
+import android.os.Handler;
 import android.util.Log;
 import android.widget.Button;
 import android.widget.EditText;
@@ -36,11 +37,20 @@ public final class MainActivity extends Activity {
     private TextView statusView;
     private EditText pcIpView;
     private TextView pcIpHintView;
+    // Process-owned orchestration. Its factory uses application preferences only.
+    private static BridgeLifecycle processBridge;
     private BridgeLifecycle bridge;
-    private BridgeLifecycle.State backendState = BridgeLifecycle.State.STOPPED;
-    private String backendMessage = "Backend stopped";
+    private String backendMessage = "No action from this screen";
+    private final Handler statusHandler = new Handler();
+    private final Runnable statusRefresh = new Runnable() {
+        @Override public void run() { renderStatus(); statusHandler.postDelayed(this, 500); }
+    };
 
     private static native StartResult nativeStart();
+    private static native void nativeConfigureStartupDiagnostics(boolean enabled);
+    private static native void nativeMarkManualBackendStart();
+    private static native StartResult nativeRestart();
+    private static native String nativeSnapshot();
     private static native void nativeStop();
     private static native String nativeReinitialize();
     private static native StartResult nativeStartBridge(String pcIpv4, int port);
@@ -48,17 +58,17 @@ public final class MainActivity extends Activity {
     private static native void nativeStopBridge();
 
     private void startBackend() {
+        nativeMarkManualBackendStart();
         Log.i(TAG, "JAVA startBackend: entering nativeStart");
         final StartResult result = nativeStart();
-        backendState = result.success ? BridgeLifecycle.State.RUNNING : BridgeLifecycle.State.ERROR;
         backendMessage = result.message;
         Log.i(TAG, "JAVA startBackend: success=" + result.success + " " + result.message.replace('\n', ' '));
         renderStatus();
     }
 
     private void renderStatus() {
-        statusView.setText("Backend: " + backendState + "\n" + backendMessage
-            + "\n\nUDP: " + bridge.state() + "\nUDP endpoint: " + bridge.endpoint()
+        statusView.setText(nativeSnapshot() + "\n\nLast backend action: " + backendMessage
+            + "\n\nLast UDP action: " + bridge.state() + "\nRequested endpoint: " + bridge.endpoint()
             + "\n" + bridge.message());
     }
 
@@ -72,13 +82,8 @@ public final class MainActivity extends Activity {
         }
     }
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        Log.i(TAG, "JAVA onCreate: begin");
-        super.onCreate(savedInstanceState);
-
-        final SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        bridge = new BridgeLifecycle(new BridgeLifecycle.Settings() {
+    private static BridgeLifecycle createBridge(final SharedPreferences preferences) {
+        return new BridgeLifecycle(new BridgeLifecycle.Settings() {
             public String savedIpv4() { return preferences.getString(PREF_PC_IPV4, ""); }
             public boolean enabled() { return preferences.getBoolean(PREF_ENABLED, false); }
             public void saveStarted(String ipv4) {
@@ -90,8 +95,18 @@ public final class MainActivity extends Activity {
             public StartResult start(String ipv4, int port) { return nativeStartBridge(ipv4, port); }
             public void stop() { nativeStopBridge(); }
         }, BRIDGE_PORT);
-        // Clear any previous native publisher before starting this Activity's lifecycle.
-        bridge.shutdown();
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        Log.i(TAG, "JAVA onCreate: begin");
+        super.onCreate(savedInstanceState);
+        nativeConfigureStartupDiagnostics(getIntent().getBooleanExtra("startup_trace", false));
+
+        final SharedPreferences preferences = getApplicationContext().getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        final boolean firstAttach = processBridge == null;
+        if (firstAttach) processBridge = createBridge(preferences);
+        bridge = processBridge;
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -107,9 +122,18 @@ public final class MainActivity extends Activity {
         root.addView(statusView);
 
         Button start = new Button(this);
-        start.setText("Start / Restart Backend");
+        start.setText("Start Backend (keep existing session)");
         start.setOnClickListener(v -> startBackend());
         root.addView(start);
+
+        Button restart = new Button(this);
+        restart.setText("Restart Backend / re-enumerate trackers");
+        restart.setOnClickListener(v -> {
+            final StartResult result = nativeRestart();
+            backendMessage = result.message;
+            renderStatus();
+        });
+        root.addView(restart);
 
         Button reinit = new Button(this);
         reinit.setText("Reinitialize Tracker Map");
@@ -150,6 +174,15 @@ public final class MainActivity extends Activity {
         });
         root.addView(startBridge);
 
+        Button restartBridge = new Button(this);
+        restartBridge.setText("Restart UDP Bridge (new sender session)");
+        restartBridge.setOnClickListener(v -> {
+            bridge.restart(pcIpView.getText().toString().trim());
+            logBridgeResult("explicit restart");
+            renderStatus();
+        });
+        root.addView(restartBridge);
+
         Button stopBridge = new Button(this);
         stopBridge.setText("Stop UDP Bridge");
         stopBridge.setOnClickListener(v -> {
@@ -165,7 +198,6 @@ public final class MainActivity extends Activity {
             Log.i(TAG, "JAVA stop: entering nativeStop");
             nativeStop();
             Log.i(TAG, "JAVA stop: complete");
-            backendState = BridgeLifecycle.State.STOPPED;
             backendMessage = "Backend stopped";
             renderStatus();
         });
@@ -175,10 +207,10 @@ public final class MainActivity extends Activity {
         scroll.addView(root);
         setContentView(scroll);
         // Backend first, then restore the independent publisher once and render both.
-        startBackend();
+        if (firstAttach) startBackend();
         final boolean enabled = preferences.getBoolean(PREF_ENABLED, false);
         Log.i(TAG, "JAVA bridge restore intent enabled=" + enabled + " endpoint=" + bridge.endpoint());
-        if (enabled) {
+        if (firstAttach && enabled) {
             Log.i(TAG, "JAVA bridge auto-start attempt");
             bridge.restore();
             logBridgeResult("auto-start");
@@ -190,10 +222,22 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         Log.i(TAG, "JAVA onDestroy: begin");
-        bridge.shutdown();
-        nativeStop();
-        Log.i(TAG, "JAVA onDestroy: native stop complete");
+        statusHandler.removeCallbacks(statusRefresh);
+        Log.i(TAG, "JAVA onDestroy: detached; process runtime retained");
         super.onDestroy();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        statusHandler.removeCallbacks(statusRefresh);
+        statusRefresh.run();
+    }
+
+    @Override
+    protected void onPause() {
+        statusHandler.removeCallbacks(statusRefresh);
+        super.onPause();
     }
 
     private void applyActiveWifiSubnet() {

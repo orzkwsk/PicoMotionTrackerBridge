@@ -75,6 +75,83 @@ void Lifecycle() {
     if(!fixturePath.empty()) { std::ofstream output(fixturePath); for(auto& event:events) output<<event.dump()<<'\n'; }
     std::cout << "lifecycle_event_count=" << events.size() << " critical_dropped=" << events.back()["details"]["critical_dropped_events"] << '\n';
 }
+void DeferredLoopClock() {
+    RuntimeDiagnostic d; Receiver r; ReceiverConfig rc;
+    rc.listenPort=0; rc.staleTimeoutNs=500'000'000;
+    REQUIRE(r.Start(rc)); std::vector<Json> events;
+    d.StartForTest([&](const std::string& s){events.push_back(Json::parse(s));});
+    r.SetDiagnosticObserver([&]{d.Poll(r,MonotonicNowNs());});
+    d.Poll(r,MonotonicNowNs()); // No accepted source yet.
+    Publisher p; PublisherConfig pc;
+    pc.pcEndpoint={"127.0.0.1",r.ListenPort()}; pc.senderSessionId=301;
+    REQUIRE(p.Start(pc));
+    for(int i=0;i<32;++i) {
+        // The service used to capture this time before Pump, whose callback
+        // observes a newer receipt, then pass the older time to the idle poll.
+        const auto loopNow=MonotonicNowNs();
+        REQUIRE(p.SendPose(Pose())); Pump(r);
+        auto* state=r.Find("SYNTHETIC-PICO-A"); REQUIRE(state);
+        const auto received=state->lastPoseReceivePcNs;
+        const auto sequence=state->lastPoseSequence;
+        REQUIRE(loopNow<received);
+        for(int repeat=0;repeat<3;++repeat)d.Poll(r,loopNow);
+        d.Poll(r,MonotonicNowNs());
+        REQUIRE(state->lastPoseReceivePcNs==received&&state->lastPoseSequence==sequence);
+        REQUIRE(state->pose.positionMeters.x==1&&state->pose.orientationXyzw.w==1);
+    }
+    auto* state=r.Find("SYNTHETIC-PICO-A"); REQUIRE(state);
+    const auto received=state->lastPoseReceivePcNs;
+    d.Event("synthetic_checkpoint",{{"name","continuous"}});
+    d.Poll(r,received+500'000'000); // Inclusive pose freshness boundary.
+    d.Event("synthetic_checkpoint",{{"name","pose_boundary"}});
+    d.Poll(r,received+500'000'001); // Pose expires independently of session.
+    d.Event("synthetic_checkpoint",{{"name","pose_expired"}});
+    d.Poll(r,received+1'000'000'000); // Inclusive session liveness boundary.
+    d.Event("synthetic_checkpoint",{{"name","session_boundary"}});
+    d.Poll(r,received+1'000'000'001); // Real source-observation timeout.
+    d.Event("synthetic_checkpoint",{{"name","session_expired"}});
+    d.Poll(r,received+1'000'000'002); // No duplicate disconnect during silence.
+    REQUIRE(p.SendPose(Pose())); Pump(r); // Same-token reconnect still resets.
+    d.Stop(); r.Stop(); p.Stop();
+    std::unordered_map<std::string,size_t> counts;
+    size_t timeouts=0,componentStops=0;
+    std::unordered_map<std::string,Json> checkpoints;
+    bool position=false;
+    for(const auto& event:events) {
+        ++counts[event["event_type"].get<std::string>()];
+        if(event["event_type"]=="position_valid_changed")position=event["validity"]["position_valid"];
+        if(event["event_type"]=="synthetic_checkpoint")
+            checkpoints[event["details"]["name"].get<std::string>()]=Json{
+                {"position",position},{"connected",counts["session_connected"]},
+                {"timeout",timeouts},{"observed",counts["pose_observed"]}};
+        if(event["event_type"]=="session_disconnected") {
+            const auto reason=event["details"].value("reason",std::string());
+            if(reason=="source_observation_timeout") {
+                ++timeouts; REQUIRE(event["details"]["transport_disconnect_authoritative"]==false);
+            }
+            if(reason=="component_stop")++componentStops;
+        }
+    }
+    if(!fixturePath.empty()) {
+        std::ofstream output(fixturePath+".deferred-clock.jsonl");
+        for(const auto& event:events)output<<event.dump()<<'\n';
+    }
+    std::cout<<"deferred_clock connected="<<counts["session_connected"]
+        <<" timeout="<<timeouts<<" first_pose="<<counts["first_pose"]
+        <<" observed="<<counts["pose_observed"]<<'\n';
+    REQUIRE(checkpoints["continuous"]==Json({{"position",true},{"connected",1},{"timeout",0},{"observed",32}}));
+    REQUIRE(checkpoints["pose_boundary"]["position"]==true);
+    REQUIRE(checkpoints["pose_expired"]["position"]==false&&checkpoints["pose_expired"]["timeout"]==0);
+    REQUIRE(checkpoints["session_boundary"]["timeout"]==0);
+    REQUIRE(checkpoints["session_expired"]["timeout"]==1);
+    REQUIRE(timeouts==1&&componentStops==1);
+    REQUIRE(counts["session_connected"]==2&&counts["session_reconnecting"]==1);
+    REQUIRE(counts["tracker_registered"]==2&&counts["tracker_unregistered"]==2);
+    REQUIRE(counts["first_pose"]==2&&counts["first_position_valid"]==2);
+    REQUIRE(counts["pose_observed"]==33);
+    REQUIRE(counts["position_valid_changed"]==3&&counts["orientation_valid_changed"]==3);
+    REQUIRE(d.Complete()&&d.Dropped()==0);
+}
 void Backpressure() {
     std::mutex m; std::condition_variable cv; bool release=false,entered=false; std::vector<Json> events;
     RuntimeDiagnostic d;
@@ -141,6 +218,6 @@ void Smoke() {
 }
 }
 int main(int argc,char** argv){
-    try { if(argc>1)fixturePath=argv[1]; Lifecycle();Backpressure();ImmediateStopDrain();Smoke();std::cout<<"runtime diagnostic tests passed\n"; }
+    try { if(argc>1)fixturePath=argv[1]; Lifecycle();DeferredLoopClock();Backpressure();ImmediateStopDrain();Smoke();std::cout<<"runtime diagnostic tests passed\n"; }
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

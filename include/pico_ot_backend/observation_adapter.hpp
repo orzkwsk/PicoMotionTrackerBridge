@@ -19,7 +19,8 @@ struct ObservationConfig {
     int64_t staleTimeoutNs = 500'000'000;
     size_t maxDevices = 256;
     std::function<std::string()> newUuid;
-    // Called before publication; persistence failure prevents output.
+    // Called before publication. Optional quality-write failure is diagnostic;
+    // stable identity construction/validation remains a separate requirement.
     std::function<SourceSpaceState(uint64_t)> sourceSpace;
     AdmissionConfig admission;
     // Capture raw pose separately from the effective protocol envelope. Must be
@@ -53,7 +54,7 @@ private:
     uint64_t diagnosticErrors_ = 0;
     bool spaceKnown_=false;
     std::map<std::string, Progress> progress_;
-    void Rotate();
+    void Rotate(bool preserveNativeCursors = false);
     template<class T> void Header(T& value, const std::string& serial,
                                  int64_t sequence, int64_t received, int64_t now) const;
 };

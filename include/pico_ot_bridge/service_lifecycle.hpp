@@ -59,15 +59,17 @@ class Endpoint {
     Handle owner_, stop_, mapping_;
     State* view_ = nullptr;
 public:
-    Endpoint(const std::wstring& name, DWORD ownerPid = 0, std::uint64_t ownerCreated = 0) {
+    Endpoint(const std::wstring& name, DWORD ownerPid = 0, std::uint64_t ownerCreated = 0, bool exclusive = false) {
         if (ownerPid) owner_.value = OpenIdentity(ownerPid, ownerCreated);
         State s;
         s.pid = GetCurrentProcessId(); s.created = Creation(GetCurrentProcess());
         s.ownerPid = ownerPid; s.ownerCreated = ownerCreated;
         stop_.value = CreateEventW(nullptr, TRUE, FALSE, StopName(name, s).c_str());
+        if (exclusive && stop_.value && GetLastError()==ERROR_ALREADY_EXISTS)throw std::runtime_error("isolated lifecycle stop collision");
         if (!stop_.value) throw std::runtime_error("lifecycle stop event unavailable");
         mapping_.value = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
                                            0, sizeof(State), name.c_str());
+        if (exclusive && mapping_.value && GetLastError()==ERROR_ALREADY_EXISTS)throw std::runtime_error("isolated lifecycle mapping collision");
         if (!mapping_.value) throw std::runtime_error("lifecycle mapping unavailable");
         view_ = static_cast<State*>(MapViewOfFile(mapping_.value, FILE_MAP_WRITE, 0, 0, sizeof(State)));
         if (!view_) throw std::runtime_error("lifecycle mapping view unavailable");
@@ -83,7 +85,7 @@ public:
     }
 };
 
-inline int StopAndWait(const std::wstring& name, DWORD timeoutMs) {
+inline int StopAndWait(const std::wstring& name, DWORD timeoutMs, DWORD expectedOwner = 0, std::uint64_t expectedCreated = 0) {
     Handle mapping(OpenFileMappingW(FILE_MAP_READ, FALSE, name.c_str()));
     if (!mapping.value) return 5; // legacy/unknown instance; never fall back to kill.
     auto view = static_cast<const State*>(MapViewOfFile(mapping.value, FILE_MAP_READ, 0, 0, sizeof(State)));
@@ -92,6 +94,7 @@ inline int StopAndWait(const std::wstring& name, DWORD timeoutMs) {
     MemoryBarrier(); std::memcpy(&s, view, sizeof(s)); MemoryBarrier();
     const auto after = view->generation; UnmapViewOfFile(view);
     if (!before || (before & 1) || before != after || s.magic != kMagic || s.version != 1 || !s.pid) return 5;
+    if(expectedOwner && (s.ownerPid!=expectedOwner||s.ownerCreated!=expectedCreated))return 5;
     try {
         Handle process(OpenIdentity(s.pid, s.created));
         Handle stop(OpenEventW(EVENT_MODIFY_STATE, FALSE, StopName(name, s).c_str()));

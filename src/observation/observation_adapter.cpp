@@ -31,10 +31,11 @@ AdmissionResult ApplyPicoAdmission(p::TrackerObservation& v, const bridge::PoseP
         v.orientation=p::QuatXyzw{q.x,q.y,q.z,q.w};
     const bool rawFull=pose.positionValid && pose.orientationSamplePresent &&
         v.position.has_value() && OrientationSane(q);
-    // Source-space authority is a prerequisite even when admission is disabled.
-    // Unknown space resets confirmation without relabeling a sane raw pose invalid.
-    auto result=gate.Process(pose,time,rawFull,fresh && sourceSpaceKnown);
-    if (!sourceSpaceKnown) result.reason="source_space_unknown";
+    // A continuity declaration describes calibration quality, not native Pose
+    // validity. Default normal output needs only fresh, structurally usable data.
+    auto result=gate.Process(pose,time,rawFull,fresh);
+    if (!sourceSpaceKnown && rawFull && fresh)
+        result.reason="source_space_unknown_diagnostic";
     const bool full=result.effective_valid;
     v.validity={full,full}; v.modality=full ? "full" : "none";
     v.orientation_evidence=full ? "sample_sanity" : "none";
@@ -58,9 +59,16 @@ PicoObservationAdapter::PicoObservationAdapter(ObservationConfig config) : confi
     std::string wire; p::Error error;
     if (!p::EncodeEnvelope(probe,wire,error)) throw std::invalid_argument(error.message);
 }
-void PicoObservationAdapter::Rotate() {
+void PicoObservationAdapter::Rotate(bool preserveNativeCursors) {
     const auto session = config_.newUuid();
-    session_ = session; progress_.clear();
+    session_ = session;
+    if (!preserveNativeCursors) { progress_.clear(); return; }
+    for (auto& [serial, previous] : progress_) {
+        Progress next(config_.admission,config_.staleTimeoutNs);
+        next.poseSeen=previous.poseSeen;next.pose=previous.pose;
+        next.deviceSeen=previous.deviceSeen;next.device=previous.device;
+        previous=std::move(next);
+    }
 }
 bool PicoObservationAdapter::StampSentAt(p::Envelope& value, int64_t now) const {
     if (now < config_.clockEpochPcNs) return false;
@@ -87,12 +95,13 @@ std::vector<p::Envelope> PicoObservationAdapter::Collect(const bridge::Receiver&
     if (!sender) return output;
     const auto space=config_.sourceSpace(sender);
     if(space.revision<config_.spaceRevision)throw std::runtime_error("source-space revision rollback");
-    if(space.revision!=config_.spaceRevision||space.known!=spaceKnown_){
-        config_.spaceRevision=space.revision;spaceKnown_=space.known;
-        // Reset sequence numbers only with a new input session. Otherwise a
-        // known/unknown transition can be rejected as stale by the consumer.
-        if(!progress_.empty())Rotate();
+    if(space.revision!=config_.spaceRevision){
+        config_.spaceRevision=space.revision;
+        // A recorded coordinate generation drops short-lived history. Mere
+        // quality-status changes do not replace a live transport/sample session.
+        if(!progress_.empty())Rotate(true);
     }
+    spaceKnown_=space.known;
     if (sender != sender_) {
         if (sender_) Rotate();
         sender_ = sender;

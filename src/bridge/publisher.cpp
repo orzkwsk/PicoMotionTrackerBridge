@@ -91,7 +91,7 @@ bool Publisher::Start(const PublisherConfig& config, std::string* error) {
         return false;
     }
 
-    if (!socket_.Open(config.localPort, true, error)) {
+    if (!socket_.Open(config.localPort, true, error, config.loopbackOnly, config.loopbackOnly)) {
         return false;
     }
 

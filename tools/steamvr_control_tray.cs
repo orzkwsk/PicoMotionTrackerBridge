@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Text;
 using System.Threading;
+using System.Runtime.InteropServices;
 using Forms = System.Windows.Forms;
 
 namespace PicoOTBridge
@@ -23,6 +24,9 @@ namespace PicoOTBridge
         private const string DisabledValue = "disabled";
 
         private readonly string repoRoot;
+        private readonly ReceiverIsolationProfile isolation;
+        private string StatusMapping {get{return isolation==null?ServiceStatusMappingName:isolation.Name("Status");}}
+        private string RouteEvent {get{return isolation==null?OutputRouteUpdatedEventName:isolation.Name("RouteUpdated");}}
         private readonly string configDirectory;
         private readonly string routePath;
         private readonly Forms.ApplicationContext context;
@@ -54,17 +58,20 @@ namespace PicoOTBridge
             Disabled = 3
         }
 
-        public SteamVrControlTray(string repoRoot, string serviceExecutable, bool openWindow)
+        public SteamVrControlTray(string repoRoot, string serviceExecutable, bool openWindow, ReceiverIsolationProfile isolation = null)
         {
+            this.isolation=isolation;
             this.repoRoot = repoRoot;
             showWindow=openWindow;
             dispatcher.CreateControl();
-            serviceControl=new PcServiceLifecycle.Control(@"Local\PicoOTBridge_ServiceLifecycle",serviceExecutable,
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"PicoMotionTrackerBridge","service-logs"));
-            openControlRequest=new EventWaitHandle(false,EventResetMode.AutoReset,@"Local\PicoOTBridge_OpenControl");
-            configDirectory = Path.Combine(
+            serviceControl=new PcServiceLifecycle.Control(isolation==null?@"Local\PicoOTBridge_ServiceLifecycle":isolation.Name("Lifecycle"),serviceExecutable,
+                isolation==null?Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"PicoMotionTrackerBridge","service-logs"):Path.Combine(isolation.Root,"service-logs"),isolation!=null);
+            bool eventCreated;
+            openControlRequest=new EventWaitHandle(false,EventResetMode.AutoReset,isolation==null?@"Local\PicoOTBridge_OpenControl":isolation.Name("OpenControl"),out eventCreated);
+            if(isolation!=null&&!eventCreated)throw new IOException("Isolated OpenControl resource already exists");
+            configDirectory = isolation==null?Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PicoMotionTrackerBridge");
+                "PicoMotionTrackerBridge"):isolation.Root;
             routePath = Path.Combine(configDirectory, "output_route.txt");
 
             context = new Forms.ApplicationContext();
@@ -78,7 +85,7 @@ namespace PicoOTBridge
             steamVrItem = new Forms.ToolStripMenuItem("SteamVR");
             monakaItem = new Forms.ToolStripMenuItem("MonakaVR");
             bothItem = new Forms.ToolStripMenuItem("Both");
-            disabledItem = new Forms.ToolStripMenuItem("Disabled");
+            disabledItem = new Forms.ToolStripMenuItem("Disable legacy output (receiver stays running)");
             steamVrItem.Click += delegate { SetRoute(OutputRoute.SteamVr); };
             monakaItem.Click += delegate { SetRoute(OutputRoute.Monaka); };
             bothItem.Click += delegate { SetRoute(OutputRoute.Both); };
@@ -91,9 +98,9 @@ namespace PicoOTBridge
             menu.Items.Add(routeMenu);
 
             menu.Items.Add(new Forms.ToolStripSeparator());
-            menu.Items.Add("Open SteamVR Control...", null, delegate { OpenControlWindow(); });
+            menu.Items.Add("Open OT Tracker Receiver...", null, delegate { OpenControlWindow(); });
             menu.Items.Add(new Forms.ToolStripSeparator());
-            exitItem=new Forms.ToolStripMenuItem("Exit");
+            exitItem=new Forms.ToolStripMenuItem("Exit (stop owned receiver)");
             exitItem.Click+=delegate { Exit(); };
             menu.Items.Add(exitItem);
 
@@ -103,7 +110,7 @@ namespace PicoOTBridge
             notifyIcon = new Forms.NotifyIcon
             {
                 Icon = trayIcon,
-                Text = "PICO Motion Tracker Bridge",
+                Text = "OT Tracker Receiver",
                 ContextMenuStrip = menu,
                 Visible = true
             };
@@ -143,10 +150,10 @@ namespace PicoOTBridge
         {
             ThreadPool.QueueUserWorkItem(delegate {
                 string error=null;
-                try {serviceControl.EnsureRunning("");}catch(Exception e){error=e.Message;}
+                try {serviceControl.EnsureRunning(isolation==null?"":isolation.Arguments);}catch(Exception e){error=e.Message;}
                 try {dispatcher.BeginInvoke((Action)delegate {
                     lifecycleIssue=error;RefreshRouteUi();
-                    if(error!=null)notifyIcon.ShowBalloonTip(5000,"PICO Receiver",error,Forms.ToolTipIcon.Error);
+                    if(error!=null)notifyIcon.ShowBalloonTip(5000,"OT Tracker Receiver",error,Forms.ToolTipIcon.Error);
                     else if(showWindow)OpenControlWindow();
                 });}catch(InvalidOperationException){}
             });
@@ -155,6 +162,14 @@ namespace PicoOTBridge
 
         private OutputRoute LoadRequestedRoute()
         {
+            if(isolation!=null) {
+                string value=File.ReadAllText(routePath,Encoding.UTF8).Trim();
+                if(value=="both")return OutputRoute.Both;
+                if(value=="disabled")return OutputRoute.Disabled;
+                if(value=="monaka")return OutputRoute.Monaka;
+                if(value=="steamvr")return OutputRoute.SteamVr;
+                throw new IOException("Isolated route invalid");
+            }
             try
             {
                 if (!File.Exists(routePath))
@@ -221,7 +236,7 @@ namespace PicoOTBridge
                     : RouteName(route) + " saved; it will be applied when the PC Bridge Service starts.";
                 notifyIcon.ShowBalloonTip(
                     2500,
-                    "PICO Motion Tracker Bridge",
+                    "OT Tracker Receiver",
                     detail,
                     Forms.ToolTipIcon.Info);
             }
@@ -254,7 +269,7 @@ namespace PicoOTBridge
         {
             try
             {
-                using (var evt = EventWaitHandle.OpenExisting(OutputRouteUpdatedEventName))
+                using (var evt = EventWaitHandle.OpenExisting(RouteEvent))
                 {
                     return evt.Set();
                 }
@@ -272,7 +287,7 @@ namespace PicoOTBridge
             try
             {
                 using (var mapping = MemoryMappedFile.OpenExisting(
-                    ServiceStatusMappingName,
+                    StatusMapping,
                     MemoryMappedFileRights.Read))
                 using (var view = mapping.CreateViewAccessor(
                     0,
@@ -291,6 +306,13 @@ namespace PicoOTBridge
                     {
                         return false;
                     }
+                    // Native MonotonicNowNs and Stopwatch share Windows QPC.
+                    long ticks = Stopwatch.GetTimestamp();
+                    long frequency = Stopwatch.Frequency;
+                    long nowNs = (ticks / frequency) * 1000000000L +
+                        (long)((decimal)(ticks % frequency) * 1000000000m / frequency);
+                    if (!ReceiverStatusDisplay.IsFreshHeartbeat(nowNs, view.ReadInt64(32)))
+                        return false;
                     route = (OutputRoute)routeRaw;
                     trackerCount = view.ReadUInt32(20);
                     return true;
@@ -304,7 +326,7 @@ namespace PicoOTBridge
 
         private void RefreshRouteUi()
         {
-            if(exitPending) {statusItem.Text="Stopping PICO Receiver; tray retained until exit confirmed";return;}
+            if(exitPending) {statusItem.Text="Stopping OT Tracker Receiver; tray retained until exit confirmed";return;}
             if(lifecycleIssue!=null) {statusItem.Text="Receiver control: "+lifecycleIssue;return;}
             OutputRoute requested = LoadRequestedRoute();
             steamVrItem.Checked = requested == OutputRoute.SteamVr;
@@ -319,7 +341,7 @@ namespace PicoOTBridge
                 if (applied == requested)
                 {
                     statusItem.Text = "Output: " + RouteName(applied) +
-                                      " | " + trackerCount.ToString() + " tracker(s)";
+                                      " | " + ReceiverStatusDisplay.CachedTrackers(trackerCount);
                 }
                 else
                 {
@@ -329,7 +351,7 @@ namespace PicoOTBridge
             }
             else
             {
-                statusItem.Text = "Bridge Service: offline | requested: " + RouteName(requested);
+                statusItem.Text = "Receiver status unavailable or stale | requested: " + RouteName(requested);
             }
         }
 
@@ -340,11 +362,10 @@ namespace PicoOTBridge
             {
                 if (controlProcess != null && !controlProcess.HasExited)
                 {
-                    notifyIcon.ShowBalloonTip(
-                        1500,
-                        "PICO Motion Tracker Bridge",
-                        "SteamVR Control is already open.",
-                        Forms.ToolTipIcon.Info);
+                    if (!OwnedControlWindow.TryActivate(controlProcess))
+                        notifyIcon.ShowBalloonTip(1500, "OT Tracker Receiver",
+                            "Receiver Control could not be brought forward. Select its window from the taskbar.",
+                            Forms.ToolTipIcon.Info);
                     return;
                 }
 
@@ -352,8 +373,8 @@ namespace PicoOTBridge
                 var psi = new ProcessStartInfo
                 {
                     FileName = executable,
-                    Arguments = Quote(repoRoot) + " --control-window-only",
-                    UseShellExecute = true
+                    Arguments = Quote(repoRoot) + " --control-window-only" + (isolation==null?"":isolation.Arguments+" --test-owner "+isolation.CurrentTrayIdentity),
+                    UseShellExecute = isolation==null
                 };
                 controlProcess = Process.Start(psi);
             }
@@ -361,7 +382,7 @@ namespace PicoOTBridge
             {
                 Forms.MessageBox.Show(
                     ex.Message,
-                    "SteamVR Control launch failed",
+                    "OT Tracker Receiver launch failed",
                     Forms.MessageBoxButtons.OK,
                     Forms.MessageBoxIcon.Error);
             }
@@ -392,7 +413,7 @@ namespace PicoOTBridge
         }
         private void ExitFailed(string error) {
             exitPending=false;exitItem.Enabled=true;lifecycleIssue=error;RefreshRouteUi();
-            notifyIcon.ShowBalloonTip(5000,"PICO Receiver stop failed",error,Forms.ToolTipIcon.Error);
+            notifyIcon.ShowBalloonTip(5000,"OT Tracker Receiver stop failed",error,Forms.ToolTipIcon.Error);
         }
 
         public void Dispose()
@@ -419,4 +440,24 @@ namespace PicoOTBridge
             }
         }
     }
+ internal static class OwnedControlWindow {
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window,out uint processId);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr window);
+  [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr window,int command);
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+  static bool Matches(Process retainedProcess,IntPtr window){
+   uint id;return !retainedProcess.HasExited&&GetWindowThreadProcessId(window,out id)!=0&&id==(uint)retainedProcess.Id;
+  }
+  internal static bool TryActivate(Process retainedProcess){
+   if(retainedProcess==null)return false;
+   try{
+    if(retainedProcess.HasExited)return false;
+    retainedProcess.Refresh();var window=retainedProcess.MainWindowHandle;
+    if(window==IntPtr.Zero||!Matches(retainedProcess,window))return false;
+    if(IsIconic(window)&&Matches(retainedProcess,window))ShowWindowAsync(window,9);
+    return Matches(retainedProcess,window)&&SetForegroundWindow(window);
+   }catch(InvalidOperationException){return false;}
+    catch(System.ComponentModel.Win32Exception){return false;}
+  }
+ }
 }

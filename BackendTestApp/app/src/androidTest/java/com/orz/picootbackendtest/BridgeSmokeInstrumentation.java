@@ -46,13 +46,15 @@ public final class BridgeSmokeInstrumentation extends Instrumentation {
             startBridge(pcIpv4);
             expectState("RUNNING");
             check(savedIp().equals(pcIpv4) && enabled(), "successful manual START saved");
-            check(status().contains("UDP endpoint: " + pcIpv4 + ":29765"), "endpoint displayed");
+            check(status().contains("Native endpoint: " + pcIpv4 + ":29765"), "endpoint displayed");
             report("B manual START and saved intent");
 
+            final String originalSession = session();
             recreate();
             expectState("RUNNING");
+            check(session().equals(originalSession), "recreation preserves sender session");
             check(input().equals(pcIpv4), "saved input restored");
-            report("C Activity recreation auto restore");
+            report("C Activity recreation preserves process runtime");
 
             click("Stop UDP Bridge");
             expectState("STOPPED");
@@ -82,12 +84,14 @@ public final class BridgeSmokeInstrumentation extends Instrumentation {
             expectState("ERROR");
             check(enabled() && savedIp().equals(pcIpv4), "failed restart preserves last success");
             recreate();
+            expectState("ERROR");
+            report("failed sender remains stopped across screen recreation; no implicit restart");
+            startBridge(pcIpv4);
             expectState("RUNNING");
-            report("last successful endpoint restored after failed restart");
 
             click("Stop Backend");
-            check(status().contains("Backend: STOPPED") && status().contains("UDP: RUNNING"), "independent STOP states");
-            click("Start / Restart Backend");
+            check(status().contains("Backend: STOPPED") && status().contains("UDP publisher: RUNNING"), "independent STOP states");
+            click("Start Backend (keep existing session)");
             expectState("RUNNING");
             report("independent backend/publisher states");
 
@@ -162,9 +166,17 @@ public final class BridgeSmokeInstrumentation extends Instrumentation {
         return text[0];
     }
 
+    private String session() {
+        for (String line : status().split("\n")) {
+            if (line.startsWith("Sender session: ")) return line;
+        }
+        throw new AssertionError("Native sender session missing");
+    }
+
     private void expectState(String udp) {
         String text = status();
-        check(text.contains("Backend: RUNNING") && text.contains("UDP: " + udp), text);
+        check(text.contains("Backend: RUNNING") && text.contains("Last UDP action: " + udp)
+            && text.contains("UDP publisher: " + (udp.equals("ERROR") ? "STOPPED" : udp)), text);
     }
 
     private String savedIp() { return preferences.getString("bridge_pc_ipv4", ""); }

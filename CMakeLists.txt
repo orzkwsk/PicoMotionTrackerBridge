@@ -16,6 +16,7 @@ set(PICO_OT_SOURCES
     src/backend.cpp
     src/c_api.cpp
     src/internal/decoder.cpp
+    src/internal/startup_diagnostics.cpp
     src/internal/clock_mapper.cpp)
 
 if(ANDROID AND CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
@@ -150,11 +151,20 @@ if(NOT ANDROID)
     endif()
 
     if(WIN32)
+        if(PICO_OT_BUILD_TESTS)
+            add_executable(pico_isolation_profile_tests tests/isolation_profile_tests.cpp)
+            target_link_libraries(pico_isolation_profile_tests PRIVATE pico_observation_provider iphlpapi)
+            add_test(NAME pico_isolation_profile COMMAND pico_isolation_profile_tests "${CMAKE_BINARY_DIR}/isolation-profile-tests")
+            add_executable(pico_isolated_packet_sender tests/isolated_packet_sender.cpp)
+            target_link_libraries(pico_isolated_packet_sender PRIVATE pico_observation_provider iphlpapi)
+            add_executable(pico_isolated_common_consumer tests/isolated_common_consumer.cpp)
+            target_link_libraries(pico_isolated_common_consumer PRIVATE MonakaProtocol::Codec)
+        endif()
         add_executable(pico_ot_bridge_service
             tools/pc_bridge_service.cpp)
         target_compile_features(pico_ot_bridge_service PRIVATE cxx_std_17)
         target_link_libraries(pico_ot_bridge_service PRIVATE
-            PicoOT::BridgePublisher PicoOT::BridgeTransport pico_observation_provider pico_runtime_diagnostic)
+            PicoOT::BridgePublisher PicoOT::BridgeTransport pico_observation_provider pico_runtime_diagnostic iphlpapi)
         add_custom_command(TARGET pico_ot_bridge_service POST_BUILD
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/diagnostic_provenance.py"
             --output "${CMAKE_BINARY_DIR}/diagnostic-generated" --binary "$<TARGET_FILE:pico_ot_bridge_service>")
@@ -224,14 +234,29 @@ if(PICO_OT_BUILD_STEAMVR_DRIVER)
 
     add_custom_command(TARGET pico_ot_steamvr_driver POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
-            "${PICO_OT_STEAMVR_PACKAGE_DIR}"
+            "${PICO_OT_STEAMVR_PACKAGE_DIR}/resources/icons"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/driver.vrdrivermanifest"
-            "${PICO_OT_STEAMVR_PACKAGE_DIR}/driver.vrdrivermanifest")
+            "${PICO_OT_STEAMVR_PACKAGE_DIR}/driver.vrdrivermanifest"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/resources/icons/tracker_active.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/resources/icons/tracker_inactive.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/resources/icons/tracker_disconnected.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/resources/icons/tracker_searching.gif"
+            "${CMAKE_CURRENT_SOURCE_DIR}/outputs/steamvr/package/resources/icons/tracker_searching@2x.gif"
+            "${PICO_OT_STEAMVR_PACKAGE_DIR}/resources/icons")
 endif()
 
 if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     enable_testing()
+    add_executable(pico_backend_lifecycle_tests
+        tests/backend_lifecycle_tests.cpp
+        src/backend.cpp
+        src/internal/clock_mapper.cpp
+        src/internal/startup_diagnostics.cpp)
+    target_compile_features(pico_backend_lifecycle_tests PRIVATE cxx_std_17)
+    target_include_directories(pico_backend_lifecycle_tests PRIVATE include src)
+    add_test(NAME pico_backend_lifecycle_tests COMMAND pico_backend_lifecycle_tests)
     add_executable(pico_runtime_diagnostic_tests tests/runtime_diagnostic_tests.cpp)
     target_link_libraries(pico_runtime_diagnostic_tests PRIVATE pico_runtime_diagnostic PicoOT::BridgePublisher)
     if(WIN32)
@@ -246,6 +271,8 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
     add_test(NAME monaka_protocol_v2_kit_integrity COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_protocol_v2.py)
     add_executable(pico_observation_tests tests/observation_tests.cpp)
     target_link_libraries(pico_observation_tests PRIVATE pico_observation_provider PicoOT::BridgePublisher)
+    add_executable(pico_p0_adapter_replay tests/p0_adapter_replay.cpp)
+    target_link_libraries(pico_p0_adapter_replay PRIVATE pico_observation_provider)
     add_test(NAME pico_observation_tests COMMAND pico_observation_tests)
     find_package(Python3 COMPONENTS Interpreter)
     if(Python3_FOUND)
@@ -310,4 +337,19 @@ if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
  add_executable(pico_source_space_tests tests/source_space_tests.cpp)
  target_link_libraries(pico_source_space_tests PRIVATE pico_observation_provider)
  add_test(NAME pico_source_space COMMAND pico_source_space_tests "${CMAKE_BINARY_DIR}/source-space-fixtures")
+endif()
+
+if(PICO_OT_BUILD_TESTS AND NOT ANDROID)
+    add_executable(pico_hmd_lifecycle_tests tests/hmd_lifecycle_tests.cpp src/internal/startup_diagnostics.cpp)
+    target_include_directories(pico_hmd_lifecycle_tests PRIVATE tests/hmd-stubs src)
+    target_link_libraries(pico_hmd_lifecycle_tests PRIVATE PicoOT::BridgePublisher)
+    add_test(NAME pico_hmd_lifecycle COMMAND pico_hmd_lifecycle_tests)
+    set(PICO_HMD_BASELINE_SOURCE "" CACHE FILEPATH "Optional old JNI source for explicit RED reproduction")
+    if(PICO_HMD_BASELINE_SOURCE)
+        add_executable(pico_hmd_lifecycle_baseline_tests tests/hmd_lifecycle_tests.cpp)
+        target_include_directories(pico_hmd_lifecycle_baseline_tests PRIVATE tests/hmd-stubs)
+        target_link_libraries(pico_hmd_lifecycle_baseline_tests PRIVATE PicoOT::BridgePublisher)
+        target_compile_definitions(pico_hmd_lifecycle_baseline_tests PRIVATE
+            PICO_HMD_RED_ONLY PICO_HMD_SOURCE="${PICO_HMD_BASELINE_SOURCE}")
+    endif()
 endif()

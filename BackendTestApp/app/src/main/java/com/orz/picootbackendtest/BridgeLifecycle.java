@@ -67,6 +67,11 @@ final class BridgeLifecycle {
         settings.saveDisabled();
     }
 
+    void restart(String ipv4) {
+        publisher.stop();
+        start(ipv4);
+    }
+
     void shutdown() {
         publisher.stop();
         state = State.STOPPED;

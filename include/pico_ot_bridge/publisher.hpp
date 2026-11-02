@@ -12,6 +12,7 @@ namespace pico_ot::bridge {
 struct PublisherConfig {
     UdpEndpoint pcEndpoint;
     uint16_t localPort = 0;
+    bool loopbackOnly = false; // Internal isolated PC publisher only.
     uint64_t senderSessionId = 0;
 };
 
