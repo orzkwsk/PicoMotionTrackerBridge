@@ -1,11 +1,13 @@
 param(
     [switch]$BuildOnly,
-    [string]$OutputDirectory,
-    [string]$ServiceExecutable,
-    [switch]$TrayOnly
+    [string]$OutputDirectory
 )
 
 $ErrorActionPreference = "Stop"
+if ($args.Count) { throw 'Unknown arguments. Use -BuildOnly and optional -OutputDirectory.' }
+if (-not $BuildOnly) {
+    throw 'This developer command only builds. Use -BuildOnly; normal startup is ../launchers/Start_PicoMotionTrackerBridge.cmd.'
+}
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $GuiSource = Join-Path $RepoRoot "tools\steamvr_control_wpf.cs"
@@ -174,12 +176,3 @@ if ($needsBuild) {
 }
 
 Write-Host "WPF GUI/tray: $GuiExe"
-if (-not $BuildOnly) {
-    if (-not $ServiceExecutable) {
-        $ServiceExecutable = & (Join-Path $PSScriptRoot "build_pc_bridge_service.ps1") | Select-Object -Last 1
-    }
-    if (-not $ServiceExecutable -or -not (Test-Path -LiteralPath $ServiceExecutable)) { throw "Selected PICO Receiver executable unavailable" }
-    $guiArguments = @('"' + $RepoRoot + '"', '--service-exe', '"' + $ServiceExecutable + '"')
-    if ($TrayOnly) { $guiArguments += '--tray-only' }
-    Start-Process -FilePath $GuiExe -ArgumentList $guiArguments -WindowStyle Hidden
-}

@@ -1,19 +1,18 @@
 # PicoMotionTrackerBridge
 
-Normal PC startup is `Start_Receiver.cmd`, using the latest local build at `Build/runtime`.
+Normal PC startup is `../launchers/Start_PicoMotionTrackerBridge.cmd`, using the latest local build at `Build/runtime`.
 Build that fixed location explicitly with `python scripts/build_runtime.py`, then use
-`Start_Receiver.cmd --check` for a file-only artifact and current-user state check.
+`../launchers/Start_PicoMotionTrackerBridge.cmd --check` for a file-only artifact and current-user state check.
 Native service output is `Build/runtime/Release`; GUI output is `Build/runtime/control/Release`.
 No normal launcher builds, invokes ADB, registers a driver, or copies/rewrites configuration.
 The native current-user identity and route remain in LocalAppData/PicoMotionTrackerBridge;
 the check reports missing state and the selected route separately from artifact readiness.
 Missing native state retains the native first-run behavior when explicitly starting normally.
-`Start_GUI.cmd` aliases normal Receiver startup; `Start_Bridge_Service.cmd` adds `--tray-only`.
-The older `scripts/start_pc_bridge_service.ps1` also delegates to that prebuilt
-tray entry; it accepts only the fixed Release configuration and optional `-Check`.
-`Start_All.cmd` and `Start_PICO_Backend.cmd` remain deprecated no-action entries.
+Normal startup opens the control GUI and its receiver-owning tray. The only launcher
+option is `--check`. Repository launch aliases and historical runtime/artifact/HMD
+launch helpers have been removed. The reported state location is the launcher's
+current `LOCALAPPDATA`; a sandbox may supply a different location from the desktop.
 Use the explicit BackendTestApp developer workflow for HMD deployment/startup.
-The artifact-set launcher remains available only for explicit HIL workflows.
 Historical build/deploy instructions below are developer workflows.
 
 Version **0.1**
@@ -172,10 +171,10 @@ Register the SteamVR driver:
 .\scripts\register_steamvr_driver.ps1
 ```
 
-Control GUI:
+Build the control GUI only (normal startup remains the external launcher):
 
 ```powershell
-.\scripts\steamvr_control_gui.ps1
+.\scripts\steamvr_control_gui.ps1 -BuildOnly
 ```
 
 The Android backend validation harness is under `BackendTestApp/`.

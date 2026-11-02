@@ -17,3 +17,11 @@ BackendTestApp/local.properties
 BackendTestApp/native-build/
 BackendTestApp/app/build/
 BackendTestApp/app/src/main/jniLibs/
+
+# Normal operational launchers live in the sibling launchers directory.
+/Start_*.cmd
+/scripts/launch_runtime.py
+/scripts/launch_artifact_set.py
+/scripts/start_pc_bridge_service.ps1
+/scripts/start_pico_backend.ps1
+/scripts/ensure_pc_runtime.ps1

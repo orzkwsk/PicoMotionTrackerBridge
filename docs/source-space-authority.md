@@ -41,13 +41,13 @@ review the candidate and identity SHA, atomically replace the sidecar, then
 verify current observations. An already observed unknown interval requires
 binding/World/Output review at the new revision. Never manually lower revision.
 
-Normal PC startup is `Start_Receiver.cmd`, reading fixed repository
+Normal PC startup is `../launchers/Start_PicoMotionTrackerBridge.cmd`, reading fixed repository
 `Build/runtime/Release` native output and `Build/runtime/control/Release` GUI output.
 `python scripts/build_runtime.py` builds them explicitly. `--check` starts no
 executable and reports artifacts separately from current-user identity/route state.
-`Start_GUI.cmd` delegates to Receiver; `Start_Bridge_Service.cmd` adds `--tray-only`.
-The old All/HMD entries remain no-action deprecations. The artifact-set launcher
-is an explicit HIL tool only. Its relative package entries use the catalog directory;
-relative explicit catalog/package arguments use the repository root.
+It opens the control GUI and its receiver-owning tray. The only launcher option is
+`--check`. Old repository entries and runtime/artifact/HMD launch helpers have been
+removed. The check reports this process's `LOCALAPPDATA`; sandbox state may differ
+from the desktop user's state. It never copies, creates or rewrites that state.
 Normal startup never invokes ADB, registration, or a build. Window X retains tray
 and service; Exit gracefully stops only its owned service and then closes the tray.

@@ -86,9 +86,15 @@ The Bridge GUI remains intentionally small. It is for:
 
 Detailed per-tracker state, raw diagnostics, battery interpretation, pose age, packet sequencing, and advanced backend operations belong in Utility rather than the Bridge GUI.
 
-## Startup
+## Historical startup
 
-`Start_All.cmd` performs runtime preparation before starting the backend:
+The procedure below records the retired one-click path. Current startup is
+`../launchers/Start_PicoMotionTrackerBridge.cmd`, which opens the prebuilt control
+GUI and receiver-owning tray from `Build/runtime`. It accepts only `--check`, and
+never builds, registers a driver, or controls the HMD. Build and deployment remain
+explicit developer commands.
+
+The removed `Start_All.cmd` performed runtime preparation before starting the backend:
 
 1. verify/build the current SteamVR driver when necessary;
 2. register the driver for first-run use;
